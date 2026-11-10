@@ -1,0 +1,438 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package fetcher // import "miniflux.app/v2/internal/reader/fetcher"
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"slices"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/proxyrotator"
+	"miniflux.app/v2/internal/urllib"
+
+	"golang.org/x/net/http/httpproxy"
+	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
+)
+
+const (
+	defaultHTTPClientTimeout = 20 * time.Second
+	defaultAcceptHeader      = "application/xml,application/atom+xml,application/rss+xml,application/rdf+xml,application/feed+json,text/html,*/*;q=0.9"
+)
+
+var (
+	ErrHostnameResolution = errors.New("fetcher: unable to resolve request hostname")
+	ErrPrivateNetworkHost = errors.New("fetcher: refusing to access private network host")
+)
+
+type proxySource int
+
+const (
+	proxySourceNone proxySource = iota
+	proxySourceFeed
+	proxySourceApplication
+	proxySourceRotator
+)
+
+type RequestBuilder struct {
+	headers            http.Header
+	cookie             string
+	cookieSiteHost     string
+	clientProxyURL     *url.URL
+	clientTimeout      time.Duration
+	useClientProxy     bool
+	withoutRedirects   bool
+	ignoreTLSErrors    bool
+	disableHTTP2       bool
+	disableCompression bool
+	proxyRotator       *proxyrotator.ProxyRotator
+	feedProxyURL       string
+}
+
+func NewRequestBuilder() *RequestBuilder {
+	return &RequestBuilder{
+		headers:       make(http.Header),
+		clientTimeout: defaultHTTPClientTimeout,
+	}
+}
+
+// Clone returns an independent copy of the builder. Mutating the copy (for
+// example to disable redirects for a single request) leaves the original
+// untouched.
+func (r *RequestBuilder) Clone() *RequestBuilder {
+	clone := *r
+	clone.headers = r.headers.Clone()
+	return &clone
+}
+
+func (r *RequestBuilder) WithHeader(key, value string) *RequestBuilder {
+	r.headers.Set(key, value)
+	return r
+}
+
+func (r *RequestBuilder) WithETag(etag string) *RequestBuilder {
+	if etag != "" {
+		r.headers.Set("If-None-Match", etag)
+	}
+	return r
+}
+
+func (r *RequestBuilder) WithLastModified(lastModified string) *RequestBuilder {
+	if lastModified != "" {
+		r.headers.Set("If-Modified-Since", lastModified)
+	}
+	return r
+}
+
+func (r *RequestBuilder) WithUserAgent(userAgent string, defaultUserAgent string) *RequestBuilder {
+	if userAgent != "" {
+		r.headers.Set("User-Agent", userAgent)
+	} else {
+		r.headers.Set("User-Agent", defaultUserAgent)
+	}
+	return r
+}
+
+// WithCookie sets the Cookie header for requests to the website of siteURL,
+// that is its host or any host sharing its registrable domain. A cookie
+// configured for a feed must not be sent to the other websites it links to.
+func (r *RequestBuilder) WithCookie(cookie, siteURL string) *RequestBuilder {
+	if cookie != "" {
+		r.cookie = cookie
+		r.cookieSiteHost = ""
+		if parsedSiteURL, err := url.Parse(siteURL); err == nil {
+			r.cookieSiteHost = parsedSiteURL.Hostname()
+		}
+	}
+	return r
+}
+
+func (r *RequestBuilder) WithUsernameAndPassword(username, password string) *RequestBuilder {
+	if username != "" && password != "" {
+		r.headers.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(username+":"+password)))
+	}
+	return r
+}
+
+func (r *RequestBuilder) WithProxyRotator(proxyRotator *proxyrotator.ProxyRotator) *RequestBuilder {
+	r.proxyRotator = proxyRotator
+	return r
+}
+
+func (r *RequestBuilder) WithCustomApplicationProxyURL(proxyURL *url.URL) *RequestBuilder {
+	r.clientProxyURL = proxyURL
+	return r
+}
+
+func (r *RequestBuilder) UseCustomApplicationProxyURL(value bool) *RequestBuilder {
+	r.useClientProxy = value
+	return r
+}
+
+func (r *RequestBuilder) WithCustomFeedProxyURL(proxyURL string) *RequestBuilder {
+	r.feedProxyURL = proxyURL
+	return r
+}
+
+func (r *RequestBuilder) WithTimeout(timeout time.Duration) *RequestBuilder {
+	r.clientTimeout = timeout
+	return r
+}
+
+func (r *RequestBuilder) WithoutRedirects() *RequestBuilder {
+	r.withoutRedirects = true
+	return r
+}
+
+func (r *RequestBuilder) DisableHTTP2(value bool) *RequestBuilder {
+	r.disableHTTP2 = value
+	return r
+}
+
+func (r *RequestBuilder) IgnoreTLSErrors(value bool) *RequestBuilder {
+	r.ignoreTLSErrors = value
+	return r
+}
+
+func (r *RequestBuilder) WithoutCompression() *RequestBuilder {
+	r.disableCompression = true
+	return r
+}
+
+func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, error) {
+	var clientProxyURL *url.URL
+	proxySource := proxySourceNone
+
+	switch {
+	case r.feedProxyURL != "":
+		var err error
+		clientProxyURL, err = url.Parse(r.feedProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf(`fetcher: invalid feed proxy URL %q: %w`, r.feedProxyURL, err)
+		}
+		proxySource = proxySourceFeed
+	case r.useClientProxy && r.clientProxyURL != nil:
+		clientProxyURL = r.clientProxyURL
+		proxySource = proxySourceApplication
+	case r.proxyRotator != nil && r.proxyRotator.HasProxies():
+		clientProxyURL = r.proxyRotator.GetNextProxy()
+		proxySource = proxySourceRotator
+	}
+
+	directDialer := &net.Dialer{
+		Timeout:   10 * time.Second, // Default is 30s.
+		KeepAlive: 15 * time.Second, // Default is 30s.
+	}
+
+	proxyDialer := &net.Dialer{
+		Timeout:   10 * time.Second, // Default is 30s.
+		KeepAlive: 15 * time.Second, // Default is 30s.
+	}
+
+	// The proxy is resolved with httpproxy rather than http.ProxyFromEnvironment,
+	// which caches the environment on first use. Routing and the trusted hop below
+	// are then decided by the same call.
+	envProxyFunc := httpproxy.FromEnvironment().ProxyFunc()
+
+	trustedProxies := &trustedProxyAddresses{}
+	allowPrivateFeedProxy := config.Opts != nil && config.Opts.FetcherAllowPrivateFeedProxy()
+	if proxySource != proxySourceFeed || allowPrivateFeedProxy {
+		trustedProxies.add(clientProxyURL)
+	}
+
+	// Perform the private-network check inside the dialer's Control callback,
+	// which fires after DNS resolution but before the TCP connection is made.
+	// This eliminates TOCTOU / DNS-rebinding vulnerabilities: the resolved IP
+	// that is checked is exactly the IP that will be connected to.
+	allowPrivateNetworks := config.Opts == nil || config.Opts.FetcherAllowPrivateNetworks()
+	if !allowPrivateNetworks {
+		directDialer.Control = func(network, address string, c syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+
+			ip := net.ParseIP(host)
+			if urllib.IsNonPublicIP(ip) {
+				return fmt.Errorf("%w %q", ErrPrivateNetworkHost, host)
+			}
+
+			return nil
+		}
+	}
+
+	transport := &http.Transport{
+		Proxy: func(req *http.Request) (*url.URL, error) {
+			proxyURL, err := envProxyFunc(req.URL)
+			if err == nil {
+				trustedProxies.add(proxyURL)
+			}
+
+			return proxyURL, err
+		},
+		// Setting `DialContext` disables HTTP/2, this option forces the transport to try HTTP/2 regardless.
+		ForceAttemptHTTP2: true,
+		MaxIdleConns:      50,               // Default is 100.
+		IdleConnTimeout:   10 * time.Second, // Default is 90s.
+	}
+
+	transport.DialContext = directDialer.DialContext
+	if !allowPrivateNetworks {
+		// Explicitly configured proxies are a trusted hop. Keep the private-network
+		// check for direct requests and redirects, but allow the connection to the proxy itself.
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if trustedProxies.contains(normalizeDialAddress(addr)) {
+				return proxyDialer.DialContext(ctx, network, addr)
+			}
+
+			return directDialer.DialContext(ctx, network, addr)
+		}
+	}
+
+	if r.ignoreTLSErrors {
+		//  Add insecure ciphers if we are ignoring TLS errors. This allows to connect to badly configured servers anyway
+		ciphers := slices.Concat(tls.CipherSuites(), tls.InsecureCipherSuites())
+		cipherSuites := make([]uint16, 0, len(ciphers))
+		for _, cipher := range ciphers {
+			cipherSuites = append(cipherSuites, cipher.ID)
+		}
+		transport.TLSClientConfig = &tls.Config{
+			CipherSuites:       cipherSuites,
+			InsecureSkipVerify: true,
+		}
+	}
+
+	if r.disableHTTP2 {
+		transport.ForceAttemptHTTP2 = false
+
+		// https://pkg.go.dev/net/http#hdr-HTTP_2
+		// Programs that must disable HTTP/2 can do so by setting [Transport.TLSNextProto] (for clients) or [Server.TLSNextProto] (for servers) to a non-nil, empty map.
+		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	}
+
+	var clientProxyURLRedacted string
+	if clientProxyURL != nil {
+		transport.Proxy = http.ProxyURL(clientProxyURL)
+		clientProxyURLRedacted = clientProxyURL.Redacted()
+	}
+
+	client := &http.Client{
+		Timeout: r.clientTimeout,
+	}
+
+	if r.withoutRedirects {
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
+
+	client.Transport = transport
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header = r.headers.Clone()
+	if r.cookie != "" && isSameSite(req.URL.Hostname(), r.cookieSiteHost) {
+		req.Header.Set("Cookie", r.cookie)
+	}
+
+	if r.disableCompression {
+		req.Header.Set("Accept-Encoding", "identity")
+	} else {
+		req.Header.Set("Accept-Encoding", "br,gzip")
+	}
+
+	// Set default Accept header if not already set.
+	// Note that for the media proxy requests, we need to forward the browser Accept header.
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", defaultAcceptHeader)
+	}
+
+	req.Header.Set("Connection", "close")
+
+	slog.Debug("Making outgoing request", slog.Group("request",
+		slog.String("method", req.Method),
+		slog.String("url", req.URL.String()),
+		slog.Any("headers", req.Header),
+		slog.Bool("without_redirects", r.withoutRedirects),
+		slog.Bool("use_app_client_proxy", r.useClientProxy),
+		slog.String("client_proxy_url", clientProxyURLRedacted),
+		slog.Bool("ignore_tls_errors", r.ignoreTLSErrors),
+		slog.Bool("disable_http2", r.disableHTTP2),
+	))
+
+	return client.Do(req)
+}
+
+// isSameSite reports whether host and siteHost are the same host, or share the
+// same registrable domain, like "www.example.org" and "feeds.example.org".
+// Hosts under a public suffix, like "alice.github.io" and "bob.github.io", are
+// different websites.
+func isSameSite(host, siteHost string) bool {
+	if host == "" || siteHost == "" {
+		return false
+	}
+
+	if host == siteHost {
+		return true
+	}
+
+	domain, err := registrableDomain(host)
+	if err != nil {
+		return false
+	}
+
+	siteDomain, err := registrableDomain(siteHost)
+	if err != nil {
+		return false
+	}
+
+	return domain == siteDomain
+}
+
+// registrableDomain returns the eTLD+1 of host. The public suffix list only
+// matches lowercase ASCII names, so the host is converted to that form first.
+// IP addresses and single-label hosts don't have one.
+func registrableDomain(host string) (string, error) {
+	asciiHost, err := idna.Lookup.ToASCII(host)
+	if err != nil {
+		return "", err
+	}
+
+	return publicsuffix.EffectiveTLDPlusOne(asciiHost)
+}
+
+func normalizeDialAddress(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return ""
+	}
+
+	return net.JoinHostPort(strings.ToLower(host), port)
+}
+
+func normalizeProxyDialAddress(proxyURL *url.URL) string {
+	if proxyURL == nil {
+		return ""
+	}
+
+	port := proxyURL.Port()
+	if port == "" {
+		switch strings.ToLower(proxyURL.Scheme) {
+		case "", "http":
+			port = "80"
+		case "https":
+			port = "443"
+		case "socks5", "socks5h":
+			port = "1080"
+		default:
+			return ""
+		}
+	}
+
+	return net.JoinHostPort(strings.ToLower(proxyURL.Hostname()), port)
+}
+
+// trustedProxyAddresses holds the dial addresses of the proxies used for a
+// request. The proxy taken from the environment is resolved per request URL, so
+// a redirect can select a different proxy than the initial request did.
+type trustedProxyAddresses struct {
+	mu        sync.Mutex
+	addresses []string
+}
+
+func (p *trustedProxyAddresses) add(proxyURL *url.URL) {
+	address := normalizeProxyDialAddress(proxyURL)
+	if address == "" {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !slices.Contains(p.addresses, address) {
+		p.addresses = append(p.addresses, address)
+	}
+}
+
+func (p *trustedProxyAddresses) contains(address string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return slices.Contains(p.addresses, address)
+}

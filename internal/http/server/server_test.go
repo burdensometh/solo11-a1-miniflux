@@ -1,0 +1,254 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package server
+
+import (
+	"net/http"
+	"os"
+	"runtime"
+	"testing"
+	"time"
+
+	"miniflux.app/v2/internal/config"
+)
+
+func TestDetermineListenTargets(t *testing.T) {
+	tests := []struct {
+		name       string
+		addresses  []string
+		certDomain string
+		certFile   string
+		keyFile    string
+		expected   []listenTarget
+	}{
+		{
+			name:      "single HTTP listener",
+			addresses: []string{":8080"},
+			expected: []listenTarget{
+				{address: ":8080", mode: modeHTTP},
+			},
+		},
+		{
+			name:      "multiple HTTP listeners",
+			addresses: []string{":8080", ":9090"},
+			expected: []listenTarget{
+				{address: ":8080", mode: modeHTTP},
+				{address: ":9090", mode: modeHTTP},
+			},
+		},
+		{
+			name:      "TLS with cert files",
+			addresses: []string{":443"},
+			certFile:  "/path/to/cert.pem",
+			keyFile:   "/path/to/key.pem",
+			expected: []listenTarget{
+				{address: ":443", mode: modeTLS},
+			},
+		},
+		{
+			name:      "cert file without key file falls back to HTTP",
+			addresses: []string{":8080"},
+			certFile:  "/path/to/cert.pem",
+			expected: []listenTarget{
+				{address: ":8080", mode: modeHTTP},
+			},
+		},
+		{
+			name:      "key file without cert file falls back to HTTP",
+			addresses: []string{":8080"},
+			keyFile:   "/path/to/key.pem",
+			expected: []listenTarget{
+				{address: ":8080", mode: modeHTTP},
+			},
+		},
+		{
+			name:       "autocert with :https address",
+			addresses:  []string{":https"},
+			certDomain: "example.com",
+			expected: []listenTarget{
+				{address: ":https", mode: modeAutocertTLS},
+			},
+		},
+		{
+			name:       "autocert with first address containing colon",
+			addresses:  []string{":443"},
+			certDomain: "example.com",
+			expected: []listenTarget{
+				{address: ":443", mode: modeAutocertTLS},
+			},
+		},
+		{
+			name:       "autocert does not apply to second non-https address",
+			addresses:  []string{":https", ":8080"},
+			certDomain: "example.com",
+			expected: []listenTarget{
+				{address: ":https", mode: modeAutocertTLS},
+				{address: ":8080", mode: modeHTTP},
+			},
+		},
+		{
+			name:      "unix socket",
+			addresses: []string{"/var/run/miniflux.sock"},
+			expected: []listenTarget{
+				{address: "/var/run/miniflux.sock", mode: modeUnixSocket},
+			},
+		},
+		{
+			name:      "unix socket with TLS",
+			addresses: []string{"/var/run/miniflux.sock"},
+			certFile:  "/path/to/cert.pem",
+			keyFile:   "/path/to/key.pem",
+			expected: []listenTarget{
+				{address: "/var/run/miniflux.sock", mode: modeUnixSocketTLS},
+			},
+		},
+		{
+			name:      "mixed unix socket and TCP",
+			addresses: []string{"/var/run/miniflux.sock", ":8080"},
+			certFile:  "/path/to/cert.pem",
+			keyFile:   "/path/to/key.pem",
+			expected: []listenTarget{
+				{address: "/var/run/miniflux.sock", mode: modeUnixSocketTLS},
+				{address: ":8080", mode: modeTLS},
+			},
+		},
+		{
+			name:      "empty address list",
+			addresses: []string{},
+			expected:  nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := determineListenTargets(tc.addresses, tc.certDomain, tc.certFile, tc.keyFile)
+
+			if len(got) != len(tc.expected) {
+				t.Fatalf("got %d targets, want %d", len(got), len(tc.expected))
+			}
+
+			for i := range got {
+				if got[i] != tc.expected[i] {
+					t.Errorf("target[%d] = %+v, want %+v", i, got[i], tc.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestAnyTLS(t *testing.T) {
+	tests := []struct {
+		name     string
+		targets  []listenTarget
+		expected bool
+	}{
+		{
+			name:     "empty list",
+			targets:  nil,
+			expected: false,
+		},
+		{
+			name:     "HTTP only",
+			targets:  []listenTarget{{mode: modeHTTP}},
+			expected: false,
+		},
+		{
+			name:     "systemd only",
+			targets:  []listenTarget{{mode: modeSystemd}},
+			expected: false,
+		},
+		{
+			name:     "unix socket without TLS",
+			targets:  []listenTarget{{mode: modeUnixSocket}},
+			expected: false,
+		},
+		{
+			name:     "TLS mode",
+			targets:  []listenTarget{{mode: modeTLS}},
+			expected: true,
+		},
+		{
+			name:     "autocert TLS mode",
+			targets:  []listenTarget{{mode: modeAutocertTLS}},
+			expected: true,
+		},
+		{
+			name:     "unix socket TLS mode",
+			targets:  []listenTarget{{mode: modeUnixSocketTLS}},
+			expected: true,
+		},
+		{
+			name:     "mixed with one TLS",
+			targets:  []listenTarget{{mode: modeHTTP}, {mode: modeTLS}, {mode: modeUnixSocket}},
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := anyTLS(tc.targets); got != tc.expected {
+				t.Errorf("anyTLS() = %v, want %v", got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestNewHTTPServerConfiguresTimeouts(t *testing.T) {
+	previousOptions := config.Opts
+	config.Opts = config.NewConfigOptions()
+	t.Cleanup(func() { config.Opts = previousOptions })
+
+	handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	server := newHTTPServer(":8080", handler)
+	timeout := config.Opts.HTTPServerTimeout()
+
+	if server.Addr != ":8080" {
+		t.Errorf("server address = %q, want %q", server.Addr, ":8080")
+	}
+	if server.Handler == nil {
+		t.Error("server handler must not be nil")
+	}
+
+	for name, actual := range map[string]time.Duration{
+		"ReadTimeout":       server.ReadTimeout,
+		"WriteTimeout":      server.WriteTimeout,
+		"IdleTimeout":       server.IdleTimeout,
+		"ReadHeaderTimeout": server.ReadHeaderTimeout,
+	} {
+		if actual != timeout {
+			t.Errorf("%s = %v, want %v", name, actual, timeout)
+		}
+	}
+}
+
+func TestCreateUnixSocketListenerPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix sockets are not supported on Windows")
+	}
+
+	tempFile, err := os.CreateTemp("/tmp", "miniflux-*.sock")
+	if err != nil {
+		t.Fatalf("Unable to allocate Unix socket path: %v", err)
+	}
+	socketFile := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		t.Fatalf("Unable to close temporary file: %v", err)
+	}
+	if err := os.Remove(socketFile); err != nil {
+		t.Fatalf("Unable to prepare Unix socket path: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(socketFile) })
+
+	listener := createUnixSocketListener(socketFile)
+	t.Cleanup(func() { listener.Close() })
+
+	fileInfo, err := os.Stat(socketFile)
+	if err != nil {
+		t.Fatalf("Unable to stat Unix socket: %v", err)
+	}
+
+	if got, want := fileInfo.Mode().Perm(), os.FileMode(0660); got != want {
+		t.Errorf("Unix socket permissions = %04o, want %04o", got, want)
+	}
+}

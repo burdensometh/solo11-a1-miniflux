@@ -1,0 +1,41 @@
+{{ define "pagination" }}
+<div class="pagination">
+    <div class="pagination-backward">
+        <div class="pagination-first {{ if not .ShowFirst }}disabled{{end}}">
+            {{ if .ShowFirst }}
+                <a href="{{ .Route }}{{ queryString (dict "offset" .FirstOffset "q" .SearchQuery "unread" .UnreadOnly) }}" data-page="first">{{ t "pagination.first" }}</a>
+            {{ else }}
+                {{ t "pagination.first" }}
+            {{ end }}
+        </div>
+
+        <div class="pagination-prev {{ if not .ShowPrev }}disabled{{end}}">
+            {{ if .ShowPrev }}
+                <a href="{{ .Route }}{{ queryString (dict "offset" .PrevOffset "q" .SearchQuery "unread" .UnreadOnly) }}" data-page="previous" rel="prev">{{ t "pagination.previous" }}</a>
+            {{ else }}
+                {{ t "pagination.previous" }}
+            {{ end }}
+        </div>
+    </div>
+
+    <a href="#" class="elevator">{{ icon "up" }}{{ t "page.footer.elevator" }}</a>
+
+    <div class="pagination-forward">
+        <div class="pagination-next {{ if not .ShowNext }}disabled{{end}}">
+            {{ if .ShowNext }}
+                <a href="{{ .Route }}{{ queryString (dict "offset" .NextOffset "q" .SearchQuery "unread" .UnreadOnly) }}" data-page="next" rel="next">{{ t "pagination.next" }}</a>
+            {{ else }}
+                {{ t "pagination.next" }}
+            {{ end }}
+        </div>
+
+        <div class="pagination-last {{ if not .ShowLast }}disabled{{end}}">
+            {{ if .ShowLast }}
+                <a href="{{ .Route }}{{ queryString (dict "offset" .LastOffset "q" .SearchQuery "unread" .UnreadOnly) }}" data-page="last" >{{ t "pagination.last" }}</a>
+            {{ else }}
+                {{ t "pagination.last" }}
+            {{ end }}
+        </div>
+    </div>
+</div>
+{{ end }}

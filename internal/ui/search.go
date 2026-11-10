@@ -1,0 +1,65 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package ui // import "miniflux.app/v2/internal/ui"
+
+import (
+	"net/http"
+
+	"miniflux.app/v2/internal/http/request"
+	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/model"
+	"miniflux.app/v2/internal/ui/view"
+)
+
+func (h *handler) showSearchPage(w http.ResponseWriter, r *http.Request) {
+	user, err := h.store.UserByID(request.UserID(r))
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	searchQuery := request.QueryStringParam(r, "q", "")
+	unreadOnly := request.QueryBoolParam(r, "unread", false)
+	offset := request.QueryIntParam(r, "offset", 0)
+
+	var entries model.Entries
+	var entriesCount int
+
+	if searchQuery != "" {
+		builder := h.store.NewEntryQueryBuilder(user.ID).
+			WithSearchQuery(searchQuery).
+			WithoutContent().
+			WithOffset(offset).
+			WithLimit(user.EntriesPerPage)
+
+		if unreadOnly {
+			builder = builder.WithStatuses(model.EntryStatusUnread)
+		}
+
+		entries, entriesCount, err = builder.GetEntriesWithCount()
+		if err != nil {
+			response.HTMLServerError(w, r, err)
+			return
+		}
+	}
+
+	view := view.New(h.tpl, r)
+	pagination := getPagination(h.routePath("/search"), entriesCount, offset, user.EntriesPerPage)
+	pagination.SearchQuery = searchQuery
+	pagination.UnreadOnly = unreadOnly
+
+	view.Set("searchQuery", searchQuery)
+	view.Set("searchUnreadOnly", unreadOnly)
+	view.Set("entries", entries)
+	view.Set("total", entriesCount)
+	view.Set("pagination", pagination)
+	view.Set("menu", "search")
+	view.Set("user", user)
+	navMetadata, _ := h.store.GetNavMetadata(user.ID)
+	view.Set("countUnread", navMetadata.CountUnread)
+	view.Set("countErrorFeeds", navMetadata.CountErrorFeeds)
+	view.Set("hasSaveEntry", navMetadata.HasSaveEntry)
+
+	response.HTML(w, r, view.Render("search"))
+}

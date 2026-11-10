@@ -1,0 +1,138 @@
+{{ define "title"}}{{ t "page.add_feed.title" }}{{ end }}
+
+{{ define "page_header"}}
+<section class="page-header" aria-labelledby="page-header-title">
+    <h1 id="page-header-title">{{ t "page.add_feed.title" }}</h1>
+    {{ template "feed_menu" dict "csrf" .csrf }}
+</section>
+{{ end }}
+
+{{ define "content"}}
+{{ if not .categories }}
+    <p role="alert" class="alert alert-error">{{ t "page.add_feed.no_category" }}</p>
+{{ else }}
+    <form action="{{ routePath "/subscribe" }}" method="post" autocomplete="off">
+        <input type="hidden" name="csrf" value="{{ .csrf }}">
+
+        {{ if .errorMessage }}
+            <div role="alert" class="alert alert-error">{{ .errorMessage }}</div>
+        {{ end }}
+
+        <label for="form-url">{{ t "page.add_feed.label.url" }}</label>
+        <input type="url" name="url" id="form-url" placeholder="https://domain.tld/" value="{{ .form.URL }}" spellcheck="false" required autofocus>
+
+        <label for="form-category">{{ t "form.feed.label.category" }}</label>
+        <select id="form-category" name="category_id">
+            {{ range .categories }}
+                <option value="{{ .ID }}" {{ if eq $.form.CategoryID .ID }}selected="selected"{{ end }}>{{ .Title }}</option>
+            {{ end }}
+        </select>
+
+        <details>
+            <summary>{{ t "page.add_feed.legend.advanced_options" }}</summary>
+            <div class="details-content">
+                <label><input type="checkbox" name="ignore_entry_updates" value="1" {{ if .form.IgnoreEntryUpdates }}checked{{ end }}> {{ t "form.feed.label.ignore_entry_updates" }}</label>
+                <label><input type="checkbox" name="allow_self_signed_certificates" value="1" {{ if .form.AllowSelfSignedCertificates }}checked{{ end }}> {{ t "form.feed.label.allow_self_signed_certificates" }}</label>
+                <label><input type="checkbox" name="disable_http2" value="1" {{ if .form.DisableHTTP2 }}checked{{ end }}> {{ t "form.feed.label.disable_http2" }}</label>
+
+                {{ if .hasProxyConfigured }}
+                <label><input type="checkbox" name="fetch_via_proxy" value="1" {{ if .form.FetchViaProxy }}checked{{ end }}> {{ t "form.feed.label.fetch_via_proxy" }}</label>
+                {{ end }}
+
+                <label for="form-proxy-url">{{ t "form.feed.label.proxy_url" }}</label>
+                <input type="url" name="proxy_url" id="form-proxy-url" value="{{ .form.ProxyURL }}" spellcheck="false">
+
+                <label for="form-user-agent">{{ t "form.feed.label.user_agent" }}</label>
+                <input type="text" name="user_agent" id="form-user-agent" placeholder="{{ .defaultUserAgent }}" value="{{ .form.UserAgent }}"  spellcheck="false" autocomplete="off">
+
+                <label for="form-cookie">{{ t "form.feed.label.cookie" }}</label>
+                <input type="text" name="cookie" id="form-cookie" value="{{ .form.Cookie }}"  spellcheck="false" autocomplete="off">
+
+                <label for="form-feed-username">{{ t "form.feed.label.feed_username" }}</label>
+                <input type="text" name="feed_username" id="form-feed-username" value="{{ .form.Username }}" spellcheck="false">
+
+                <label for="form-feed-password">{{ t "form.feed.label.feed_password" }}</label>
+                <!--
+                    We are using the type "text" otherwise Firefox always autocomplete this password:
+
+                    - autocomplete="off" or autocomplete="new-password" doesn't change anything
+                    - Changing the input ID doesn't change anything
+                    - Using a different input name doesn't change anything
+                -->
+                <input type="text" name="feed_password" id="form-feed-password" value="{{ .form.Password }}" spellcheck="false">
+
+                <div class="form-label-row">
+                    <label for="form-rewrite-rules">
+                        {{ t "form.feed.label.rewrite_rules" }}
+                    </label>
+                    &nbsp;
+                    <a href="https://miniflux.app/docs/rules.html#rewrite-rules" aria-label="{{ t "action.documentation" (t "form.feed.label.rewrite_rules") }}" {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ end }}>
+                        {{ icon "external-link" }}
+                    </a>
+                </div>
+                <textarea name="rewrite_rules" id="form-rewrite-rules" class="code-input code-input-autogrow" rows="2" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off">{{ .form.RewriteRules }}</textarea>
+
+                <div class="form-label-row">
+                    <label for="form-urlrewrite-rules">
+                        {{ t "form.feed.label.urlrewrite_rules" }}
+                    </label>
+                    &nbsp;
+                    <a href=" https://miniflux.app/docs/rules.html#rewriteurl-rules" aria-label="{{ t "action.documentation" (t "form.feed.label.urlrewrite_rules") }}" {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ end }}>
+                        {{ icon "external-link" }}
+                    </a>
+                </div>
+                <textarea name="urlrewrite_rules" id="form-urlrewrite-rules" class="code-input code-input-autogrow" rows="2" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off">{{ .form.UrlRewriteRules }}</textarea>
+
+                <div class="form-label-row">
+                    <label for="form-blocklist-rules">
+                        {{ t "form.feed.label.blocklist_rules" }}
+                    </label>
+                    &nbsp;
+                    <a href=" https://miniflux.app/docs/rules.html#feed-filtering-rules" aria-label="{{ t "action.documentation" (t "form.feed.label.blocklist_rules") }}" {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ end }}>
+                        {{ icon "external-link" }}
+                    </a>
+                </div>
+                <input type="text" name="blocklist_rules" id="form-blocklist-rules" class="code-input" value="{{ .form.BlocklistRules }}" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off">
+
+                <div class="form-label-row">
+                    <label for="form-keeplist-rules">
+                        {{ t "form.feed.label.keeplist_rules" }}
+                    </label>
+                    &nbsp;
+                    <a href=" https://miniflux.app/docs/rules.html#feed-filtering-rules" aria-label="{{ t "action.documentation" (t "form.feed.label.keeplist_rules") }}" {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ end }}>
+                        {{ icon "external-link" }}
+                    </a>
+                </div>
+                <input type="text" name="keeplist_rules" id="form-keeplist-rules" class="code-input" value="{{ .form.KeeplistRules }}" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off">
+
+                <div class="form-label-row">
+                    <label for="form-block-filter-rules">
+                        {{ t "form.feed.label.block_filter_entry_rules" }}
+                    </label>
+                    &nbsp;
+                    <a href=" https://miniflux.app/docs/rules.html#filtering-rules" aria-label="{{ t "action.documentation" (t "form.feed.label.block_filter_entry_rules") }}" {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ end }}>
+                        {{ icon "external-link" }}
+                    </a>
+                </div>
+                <textarea id="form-block-filter-rules" name="block_filter_entry_rules" class="code-input" cols="40" rows="10" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off">{{ .form.BlockFilterEntryRules }}</textarea>
+
+                <div class="form-label-row">
+                    <label for="form-keep-filter-rules">
+                        {{ t "form.feed.label.keep_filter_entry_rules" }}
+                    </label>
+                    &nbsp;
+                    <a href=" https://miniflux.app/docs/rules.html#filtering-rules" aria-label="{{ t "action.documentation" (t "form.feed.label.keep_filter_entry_rules") }}" {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ end }}>
+                        {{ icon "external-link" }}
+                    </a>
+                </div>
+                <textarea id="form-keep-filter-rules" name="keep_filter_entry_rules" class="code-input" cols="40" rows="10" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off">{{ .form.KeepFilterEntryRules }}</textarea>
+            </div>
+        </details>
+
+        <div class="buttons">
+            <button type="submit" class="button button-primary" data-label-loading="{{ t "form.submit.loading" }}">{{ t "page.add_feed.submit" }}</button>
+        </div>
+    </form>
+{{ end }}
+
+{{ end }}

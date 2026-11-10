@@ -1,0 +1,334 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package template // import "miniflux.app/v2/internal/template"
+
+import (
+	"errors"
+	"fmt"
+	"html/template"
+	"math"
+	"net/mail"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/crypto"
+	"miniflux.app/v2/internal/locale"
+	"miniflux.app/v2/internal/mediaproxy"
+	"miniflux.app/v2/internal/model"
+	"miniflux.app/v2/internal/reader/sanitizer"
+	"miniflux.app/v2/internal/timezone"
+	"miniflux.app/v2/internal/ui/static"
+	"miniflux.app/v2/internal/urllib"
+)
+
+type funcMap struct {
+	basePath  string
+	iconPaths map[string]string
+}
+
+// Map returns a map of template functions that are compiled during template parsing.
+func (f *funcMap) Map() template.FuncMap {
+	// Pre-compute every icon URL once, as iconPath is called a lot during pages rendering.
+	f.iconPaths = make(map[string]string, len(static.BinaryBundles))
+	for filename, bundle := range static.BinaryBundles {
+		f.iconPaths[filename] = f.basePath + "/icon/" + bundle.Checksum + "/" + filename
+	}
+	return template.FuncMap{
+		"contains":         strings.Contains,
+		"csp":              csp,
+		"startsWith":       strings.HasPrefix,
+		"formatFileSize":   formatFileSize,
+		"dict":             dict,
+		"truncate":         truncate,
+		"isEmail":          isEmail,
+		"baseURL":          config.Opts.BaseURL,
+		"apiEnabled":       config.Opts.HasAPI,
+		"rootURL":          config.Opts.RootURL,
+		"disableLocalAuth": config.Opts.DisableLocalAuth,
+		"webAuthnEnabled":  config.Opts.WebAuthn,
+		"oidcProviderName": config.Opts.OAuth2OIDCProviderName,
+		"hasOAuth2Provider": func(provider string) bool {
+			return config.Opts.OAuth2Provider() == provider
+		},
+		"hasAuthProxy": func() bool {
+			return config.Opts.AuthProxyHeader() != ""
+		},
+		"routePath": func(format string, args ...any) string {
+			if len(args) > 0 {
+				return f.basePath + fmt.Sprintf(format, args...)
+			}
+			return f.basePath + format
+		},
+		"untrustedURL": untrustedURL,
+		"safeCSS": func(str string) template.CSS {
+			return template.CSS(str)
+		},
+		"safeJS": func(str string) template.JS {
+			return template.JS(str)
+		},
+		"safeHTML": func(str string) template.HTML {
+			return template.HTML(str)
+		},
+		"proxyFilter": mediaproxy.RewriteDocumentWithRelativeProxyURL,
+		"proxyURL": func(link string) string {
+			mediaProxyMode := config.Opts.MediaProxyMode()
+
+			if mediaProxyMode == "all" || (mediaProxyMode != "none" && !urllib.IsHTTPS(link)) {
+				return mediaproxy.ProxifyRelativeURL(link)
+			}
+
+			return link
+		},
+		"mustBeProxyfied": func(mediaType string) bool {
+			return slices.Contains(config.Opts.MediaProxyResourceTypes(), mediaType)
+		},
+		"domain": urllib.Domain,
+		"replace": func(str, old, new string) string {
+			return strings.Replace(str, old, new, 1)
+		},
+		"isodate": func(ts time.Time) string {
+			return ts.Format("2006-01-02 15:04:05")
+		},
+		"theme_color": model.ThemeColor,
+		"iconPath":    f.iconPath,
+		"icon":        f.iconFunc(),
+		"nonce": func() string {
+			return crypto.GenerateRandomStringHex(16)
+		},
+		"deRef":     func(i *int) int { return *i },
+		"duration":  duration,
+		"urlEncode": url.PathEscape,
+		"subtract": func(a, b int) int {
+			return a - b
+		},
+		"queryString": func(params map[string]any) string {
+			if len(params) == 0 {
+				return ""
+			}
+
+			values := url.Values{}
+			for key, value := range params {
+				switch v := value.(type) {
+				case string:
+					if v != "" {
+						values.Set(key, v)
+					}
+				case int:
+					if v != 0 {
+						values.Set(key, strconv.Itoa(v))
+					}
+				case int64:
+					if v != 0 {
+						values.Set(key, strconv.FormatInt(v, 10))
+					}
+				case bool:
+					if v {
+						values.Set(key, "1")
+					}
+				default:
+					if value != nil {
+						str := fmt.Sprint(value)
+						if str != "" {
+							values.Set(key, str)
+						}
+					}
+				}
+			}
+
+			encoded := values.Encode()
+			if encoded == "" {
+				return ""
+			}
+
+			return "?" + encoded
+		},
+
+		// These functions are overridden at runtime after parsing.
+		"elapsed": func(timezone string, t time.Time) string {
+			return ""
+		},
+		"t": func(key any, args ...any) string {
+			return ""
+		},
+		"plural": func(key string, n int, args ...any) string {
+			return ""
+		},
+	}
+}
+
+func (f *funcMap) iconPath(filename string) string {
+	return f.iconPaths[filename]
+}
+
+func (f *funcMap) iconFunc() func(string) template.HTML {
+	// Concatenation is used instead of fmt.Sprintf,
+	// as it's much faster, and this function is called
+	// a bunch of times per feed item on the main page.
+	prefix := `<svg class="icon" aria-hidden="true"><use href="` + f.iconPath("sprite.svg") + `#icon-`
+	const suffix = `"/></svg>`
+	return func(iconName string) template.HTML {
+		return template.HTML(prefix + iconName + suffix)
+	}
+}
+
+func csp(user *model.User, nonce string) string {
+	policies := map[string]string{
+		"default-src":               "'none'",
+		"frame-src":                 "*",
+		"img-src":                   "* data:",
+		"manifest-src":              "'self'",
+		"media-src":                 "*",
+		"require-trusted-types-for": "'script'",
+		"script-src":                "'nonce-" + nonce + "' 'strict-dynamic'",
+		"style-src":                 "'nonce-" + nonce + "'",
+		"trusted-types":             "html url",
+		"connect-src":               "'self'",
+	}
+
+	if user != nil {
+		if user.ExternalFontHosts != "" {
+			policies["font-src"] = user.ExternalFontHosts
+			if user.Stylesheet != "" {
+				policies["style-src"] += " " + user.ExternalFontHosts
+			}
+		}
+	}
+
+	var policy strings.Builder
+	policy.Grow(350)
+	for key, value := range policies {
+		policy.WriteString(key)
+		policy.WriteString(" ")
+		policy.WriteString(value)
+		policy.WriteString("; ")
+	}
+
+	return `<meta http-equiv="Content-Security-Policy" content="` + policy.String() + `">`
+}
+
+func dict(values ...any) (map[string]any, error) {
+	if len(values)%2 != 0 {
+		return nil, errors.New("dict expects an even number of arguments")
+	}
+	dict := make(map[string]any, len(values)/2)
+	for i := 0; i < len(values); i += 2 {
+		key, ok := values[i].(string)
+		if !ok {
+			return nil, errors.New("dict keys must be strings")
+		}
+		dict[key] = values[i+1]
+	}
+	return dict, nil
+}
+
+func truncate(str string, max int) string {
+	if max <= 0 {
+		panic("truncate: max must be greater than zero")
+	}
+
+	// Template callers pass feed titles from remote content. Scanning and
+	// allocating the entire untrusted input just to truncate it could create a
+	// denial-of-service risk, so stop as soon as we reach the requested limit.
+	runeCount := 0
+	for i := range str {
+		if runeCount == max {
+			return str[:i] + "…"
+		}
+		runeCount++
+	}
+
+	return str
+}
+
+func isEmail(str string) bool {
+	_, err := mail.ParseAddress(str)
+	return err == nil
+}
+
+// untrustedURL validates a feed-supplied URL against the sanitizer's scheme
+// allowlist before exposing it to html/template. Returns "#" for unsafe URLs
+// (e.g. javascript:, data:) so anchors render as inert links.
+//
+// Go's built-in html/template URL filter only allows http(s), mailto, and
+// relative URLs — too narrow for feeds which legitimately use schemes like
+// magnet:, feed:, webcal:, and tel:.
+func untrustedURL(rawURL string) template.URL {
+	if !sanitizer.HasValidURIScheme(rawURL) {
+		return template.URL("#")
+	}
+	return template.URL(rawURL)
+}
+
+// Returns the duration in human readable format (hours and minutes).
+func duration(t time.Time) string {
+	return durationImpl(t, time.Now())
+}
+
+// Accepts now argument for easy testing
+func durationImpl(t time.Time, now time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	if diff := t.Sub(now); diff >= 0 {
+		// Round to nearest second to get e.g. "14m56s" rather than "14m56.245483933s"
+		return diff.Round(time.Second).String()
+	}
+	return ""
+}
+
+func elapsedTime(printer *locale.Printer, tz string, t time.Time) string {
+	if t.IsZero() {
+		return printer.Print("time_elapsed.not_yet")
+	}
+
+	now := timezone.Now(tz)
+	t = timezone.Convert(tz, t)
+	if now.Before(t) {
+		return printer.Print("time_elapsed.not_yet")
+	}
+
+	diff := now.Sub(t)
+	// Duration in seconds
+	s := diff.Seconds()
+	// Duration in days
+	d := int(s / 86400)
+	switch {
+	case s < 60:
+		return printer.Print("time_elapsed.now")
+	case s < 3600:
+		minutes := int(diff.Minutes())
+		return printer.Plural("time_elapsed.minutes", minutes, minutes)
+	case s < 86400:
+		hours := int(diff.Hours())
+		return printer.Plural("time_elapsed.hours", hours, hours)
+	case d == 1:
+		return printer.Print("time_elapsed.yesterday")
+	case d < 21:
+		return printer.Plural("time_elapsed.days", d, d)
+	case d < 31:
+		weeks := int(math.Round(float64(d) / 7))
+		return printer.Plural("time_elapsed.weeks", weeks, weeks)
+	case d < 365:
+		months := int(math.Round(float64(d) / 30))
+		return printer.Plural("time_elapsed.months", months, months)
+	default:
+		years := int(math.Round(float64(d) / 365))
+		return printer.Plural("time_elapsed.years", years, years)
+	}
+}
+
+func formatFileSize(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	base := math.Log(float64(b)) / math.Log(unit)
+	number := math.Pow(unit, base-math.Floor(base))
+	return fmt.Sprintf("%.1f %ciB", number, "KMGTPE"[int64(base)-1])
+}

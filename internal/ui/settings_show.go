@@ -1,0 +1,73 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package ui // import "miniflux.app/v2/internal/ui"
+
+import (
+	"net/http"
+
+	"miniflux.app/v2/internal/http/request"
+	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/locale"
+	"miniflux.app/v2/internal/model"
+	"miniflux.app/v2/internal/timezone"
+	"miniflux.app/v2/internal/ui/form"
+	"miniflux.app/v2/internal/ui/view"
+)
+
+func (h *handler) showSettingsPage(w http.ResponseWriter, r *http.Request) {
+	user, err := h.store.UserByID(request.UserID(r))
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	settingsForm := form.SettingsForm{
+		Theme:                     user.Theme,
+		Language:                  user.Language,
+		Timezone:                  user.Timezone,
+		EntryDirection:            user.EntryDirection,
+		EntryOrder:                user.EntryOrder,
+		EntriesPerPage:            user.EntriesPerPage,
+		KeyboardShortcuts:         user.KeyboardShortcuts,
+		ShowReadingTime:           user.ShowReadingTime,
+		CustomCSS:                 user.Stylesheet,
+		CustomJS:                  user.CustomJS,
+		ExternalFontHosts:         user.ExternalFontHosts,
+		EntrySwipe:                user.EntrySwipe,
+		GestureNav:                user.GestureNav,
+		DisplayMode:               user.DisplayMode,
+		DefaultReadingSpeed:       user.DefaultReadingSpeed,
+		CJKReadingSpeed:           user.CJKReadingSpeed,
+		DefaultHomePage:           user.DefaultHomePage,
+		CategoriesSortingOrder:    user.CategoriesSortingOrder,
+		MarkReadBehavior:          form.MarkAsReadBehavior(user.MarkReadOnView, user.MarkReadOnMediaPlayerCompletion),
+		MediaPlaybackRate:         user.MediaPlaybackRate,
+		BlockFilterEntryRules:     user.BlockFilterEntryRules,
+		KeepFilterEntryRules:      user.KeepFilterEntryRules,
+		AlwaysOpenExternalLinks:   user.AlwaysOpenExternalLinks,
+		OpenExternalLinksInNewTab: user.OpenExternalLinksInNewTab,
+	}
+
+	view := view.New(h.tpl, r)
+	view.Set("form", settingsForm)
+	view.Set("readBehaviors", map[string]any{
+		"NoAutoMarkAsRead":                           form.NoAutoMarkAsRead,
+		"MarkAsReadOnView":                           form.MarkAsReadOnView,
+		"MarkAsReadOnViewButWaitForPlayerCompletion": form.MarkAsReadOnViewButWaitForPlayerCompletion,
+		"MarkAsReadOnlyOnPlayerCompletion":           form.MarkAsReadOnlyOnPlayerCompletion,
+	})
+	view.Set("themes", model.Themes())
+	view.Set("languages", locale.AvailableLanguages)
+	view.Set("timezones", timezone.AvailableTimezones())
+	view.Set("menu", "settings")
+	view.Set("user", user)
+	navMetadata, _ := h.store.GetNavMetadata(user.ID)
+	view.Set("countUnread", navMetadata.CountUnread)
+	view.Set("countErrorFeeds", navMetadata.CountErrorFeeds)
+	view.Set("default_home_pages", model.HomePages())
+	view.Set("categories_sorting_options", model.CategoriesSortingOptions())
+	view.Set("maxEntriesPerPage", model.MaxEntryLimit)
+
+	response.HTML(w, r, view.Render("settings"))
+}

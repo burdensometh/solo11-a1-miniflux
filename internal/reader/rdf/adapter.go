@@ -1,0 +1,116 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package rdf // import "miniflux.app/v2/internal/reader/rdf"
+
+import (
+	"html"
+	"log/slog"
+	"strings"
+	"time"
+
+	"miniflux.app/v2/internal/crypto"
+	"miniflux.app/v2/internal/model"
+	"miniflux.app/v2/internal/reader/date"
+	"miniflux.app/v2/internal/reader/language"
+	"miniflux.app/v2/internal/reader/sanitizer"
+	"miniflux.app/v2/internal/urllib"
+)
+
+type rdfAdapter struct {
+	rdf *rdf
+}
+
+func (r *rdfAdapter) buildFeed(baseURL string) *model.Feed {
+	feed := &model.Feed{
+		Title:       sanitizer.StripTags(r.rdf.Channel.Title),
+		FeedURL:     strings.TrimSpace(baseURL),
+		SiteURL:     strings.TrimSpace(r.rdf.Channel.Link),
+		Description: strings.TrimSpace(r.rdf.Channel.Description),
+		Language:    language.Normalize(r.rdf.Channel.DublinCoreLanguage),
+	}
+
+	if feed.Title == "" {
+		feed.Title = baseURL
+	}
+
+	if siteURL, err := urllib.ResolveToAbsoluteURL(feed.FeedURL, feed.SiteURL); err == nil {
+		feed.SiteURL = siteURL
+	}
+
+	for _, item := range r.rdf.Items {
+		entry := model.NewEntry()
+		itemLink := strings.TrimSpace(item.Link)
+
+		// Populate the entry URL.
+		if itemLink == "" {
+			entry.URL = feed.SiteURL // Fallback to the feed URL if the entry URL is empty.
+		} else if entryURL, err := urllib.ResolveToAbsoluteURL(feed.SiteURL, itemLink); err == nil {
+			entry.URL = entryURL
+		} else {
+			entry.URL = itemLink
+		}
+
+		// Populate the entry title.
+		for _, title := range []string{item.Title, item.DublinCoreTitle} {
+			title = strings.TrimSpace(title)
+			if title != "" {
+				entry.Title = html.UnescapeString(title)
+				break
+			}
+		}
+
+		// If the entry title is empty, we use the entry URL as a fallback.
+		if entry.Title == "" {
+			entry.Title = entry.URL
+		}
+
+		// Populate the entry content.
+		if item.DublinCoreContent != "" {
+			entry.Content = item.DublinCoreContent
+		} else {
+			entry.Content = item.Description
+		}
+
+		// Generate the entry hash.
+		hashValue := itemLink
+		if hashValue == "" {
+			hashValue = item.Title + item.Description // Fallback to the title and description if the link is empty.
+		}
+
+		entry.Hash = crypto.SHA256(hashValue)
+
+		// Populate the entry date.
+		entry.Date = time.Now()
+		if item.DublinCoreDate != "" {
+			if itemDate, err := date.Parse(item.DublinCoreDate); err != nil {
+				slog.Debug("Unable to parse date from RDF feed",
+					slog.String("date", item.DublinCoreDate),
+					slog.String("link", itemLink),
+					slog.Any("error", err),
+				)
+			} else {
+				entry.Date = itemDate
+			}
+		}
+
+		// Populate the entry author.
+		switch {
+		case item.DublinCoreCreator != "":
+			entry.Author = sanitizer.StripTags(item.DublinCoreCreator)
+		case r.rdf.Channel.DublinCoreCreator != "":
+			entry.Author = sanitizer.StripTags(r.rdf.Channel.DublinCoreCreator)
+		}
+
+		// Populate the entry language, falling back to the channel
+		// language: items are part of the channel's content.
+		entry.Language = language.Normalize(item.DublinCoreLanguage)
+		if entry.Language == "" {
+			entry.Language = feed.Language
+		}
+
+		feed.Entries = append(feed.Entries, entry)
+	}
+
+	return feed
+}

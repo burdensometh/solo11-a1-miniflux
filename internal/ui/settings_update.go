@@ -1,0 +1,88 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package ui // import "miniflux.app/v2/internal/ui"
+
+import (
+	"net/http"
+
+	"miniflux.app/v2/internal/http/request"
+	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/locale"
+	"miniflux.app/v2/internal/model"
+	"miniflux.app/v2/internal/timezone"
+	"miniflux.app/v2/internal/ui/form"
+	"miniflux.app/v2/internal/ui/view"
+	"miniflux.app/v2/internal/validator"
+)
+
+func (h *handler) updateSettings(w http.ResponseWriter, r *http.Request) {
+	user, err := h.store.UserByID(request.UserID(r))
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	settingsForm := form.NewSettingsForm(r)
+
+	view := view.New(h.tpl, r)
+	view.Set("form", settingsForm)
+	view.Set("readBehaviors", map[string]any{
+		"NoAutoMarkAsRead":                           form.NoAutoMarkAsRead,
+		"MarkAsReadOnView":                           form.MarkAsReadOnView,
+		"MarkAsReadOnViewButWaitForPlayerCompletion": form.MarkAsReadOnViewButWaitForPlayerCompletion,
+		"MarkAsReadOnlyOnPlayerCompletion":           form.MarkAsReadOnlyOnPlayerCompletion,
+	})
+	view.Set("themes", model.Themes())
+	view.Set("languages", locale.AvailableLanguages)
+	view.Set("timezones", timezone.AvailableTimezones())
+	view.Set("menu", "settings")
+	view.Set("user", user)
+	navMetadata, _ := h.store.GetNavMetadata(user.ID)
+	view.Set("countUnread", navMetadata.CountUnread)
+	view.Set("countErrorFeeds", navMetadata.CountErrorFeeds)
+	view.Set("default_home_pages", model.HomePages())
+	view.Set("categories_sorting_options", model.CategoriesSortingOptions())
+
+	if validationErr := settingsForm.Validate(); validationErr != nil {
+		view.Set("errorMessage", validationErr.Translate(user.Language))
+		response.HTML(w, r, view.Render("settings"))
+		return
+	}
+
+	userModificationRequest := &model.UserModificationRequest{
+		Theme:                  model.OptionalString(settingsForm.Theme),
+		Language:               model.OptionalString(settingsForm.Language),
+		Timezone:               model.OptionalString(settingsForm.Timezone),
+		EntryDirection:         model.OptionalString(settingsForm.EntryDirection),
+		EntryOrder:             model.OptionalString(settingsForm.EntryOrder),
+		EntriesPerPage:         model.OptionalNumber(settingsForm.EntriesPerPage),
+		CategoriesSortingOrder: model.OptionalString(settingsForm.CategoriesSortingOrder),
+		DisplayMode:            model.OptionalString(settingsForm.DisplayMode),
+		GestureNav:             model.OptionalString(settingsForm.GestureNav),
+		DefaultReadingSpeed:    model.OptionalNumber(settingsForm.DefaultReadingSpeed),
+		CJKReadingSpeed:        model.OptionalNumber(settingsForm.CJKReadingSpeed),
+		DefaultHomePage:        model.OptionalString(settingsForm.DefaultHomePage),
+		MediaPlaybackRate:      model.OptionalNumber(settingsForm.MediaPlaybackRate),
+		BlockFilterEntryRules:  model.OptionalString(settingsForm.BlockFilterEntryRules),
+		KeepFilterEntryRules:   model.OptionalString(settingsForm.KeepFilterEntryRules),
+		ExternalFontHosts:      model.OptionalString(settingsForm.ExternalFontHosts),
+	}
+
+	if validationErr := validator.ValidateUserModification(h.store, user.ID, userModificationRequest); validationErr != nil {
+		view.Set("errorMessage", validationErr.Translate(user.Language))
+		response.HTML(w, r, view.Render("settings"))
+		return
+	}
+
+	err = h.store.UpdateUser(settingsForm.Merge(user))
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	sess := request.WebSession(r)
+	sess.SetUser(user)
+	sess.SetSuccessMessage(locale.NewPrinter(sess.Language()).Printf("alert.prefs_saved"))
+	response.HTMLRedirect(w, r, h.routePath("/settings"))
+}

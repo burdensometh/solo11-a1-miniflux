@@ -1,0 +1,24 @@
+{{ define "feed_menu" }}
+<nav aria-label="{{ t "page.feeds.title" }} {{ t "menu.title" }}"><ul>
+    <li>
+        <a class="page-link" href="{{ routePath "/feeds" }}">{{ icon "feeds" }}{{ t "menu.feeds" }}</a>
+    </li>
+    <li>
+        <a class="page-link" href="{{ routePath "/subscribe" }}">{{ icon "add-feed" }}{{ t "menu.add_feed" }}</a>
+    </li>
+    <li>
+        <a class="page-link" href="{{ routePath "/export" }}">{{ icon "feed-export" }}{{ t "menu.export" }}</a>
+    </li>
+    <li>
+        <a class="page-link" href="{{ routePath "/import" }}">{{ icon "feed-import" }}{{ t "menu.import" }}</a>
+    </li>
+    <li>
+        <form action="{{ routePath "/feeds/refresh" }}" method="post" class="page-header-action-form">
+            <input type="hidden" name="csrf" value="{{ .csrf }}">
+            <button class="page-button" data-label-loading="{{ t "confirm.loading" }}">
+                {{ icon "refresh" }}{{ t "menu.refresh_all_feeds" }}
+            </button>
+        </form>
+    </li>
+</ul></nav>
+{{ end }}

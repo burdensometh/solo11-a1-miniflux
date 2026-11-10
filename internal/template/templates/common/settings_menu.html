@@ -1,0 +1,33 @@
+{{ define "settings_menu" }}
+<nav aria-label="{{ t "page.settings.title" }} {{ t "menu.title" }}">
+    <ul>
+        <li>
+            <a href="{{ routePath "/settings" }}">{{ icon "settings" }}{{ t "menu.settings" }}</a>
+        </li>
+        {{ if or (not disableLocalAuth) webAuthnEnabled }}
+        <li>
+            <a href="{{ routePath "/authentication" }}">{{ icon "authentication" }}{{ t "menu.authentication" }}</a>
+        </li>
+        {{ end }}
+        <li>
+            <a href="{{ routePath "/integrations" }}">{{ icon "third-party-services" }}{{ t "menu.integrations" }}</a>
+        </li>
+        {{ if apiEnabled }}
+        <li>
+            <a href="{{ routePath "/keys" }}">{{ icon "api" }}{{ t "menu.api_keys" }}</a>
+        </li>
+        {{ end }}
+        <li>
+            <a href="{{ routePath "/sessions" }}">{{ icon "sessions" }}{{ t "menu.sessions" }}</a>
+        </li>
+        {{ if .user.IsAdmin }}
+            <li>
+                <a href="{{ routePath "/users" }}">{{ icon "users" }}{{ t "menu.users" }}</a>
+            </li>
+        {{ end }}
+        <li>
+            <a href="{{ routePath "/about" }}">{{ icon "about" }}{{ t "menu.about" }}</a>
+        </li>
+    </ul>
+</nav>
+{{ end }}

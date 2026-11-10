@@ -1,0 +1,297 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package atom // import "miniflux.app/v2/internal/reader/atom"
+
+import (
+	"log/slog"
+	"strconv"
+	"strings"
+	"time"
+
+	"miniflux.app/v2/internal/crypto"
+	"miniflux.app/v2/internal/model"
+	"miniflux.app/v2/internal/reader/date"
+	"miniflux.app/v2/internal/reader/language"
+	"miniflux.app/v2/internal/reader/sanitizer"
+	"miniflux.app/v2/internal/urllib"
+)
+
+type atom10Adapter struct {
+	atomFeed *atom10Feed
+}
+
+func (a *atom10Adapter) buildFeed(baseURL string) *model.Feed {
+	feed := &model.Feed{
+		FeedURL: baseURL,
+		SiteURL: baseURL,
+	}
+
+	// Populate the feed URL.
+	feedURL := a.atomFeed.Links.firstLinkWithRelation("self")
+	if feedURL != "" {
+		if absoluteFeedURL, err := urllib.ResolveToAbsoluteURL(baseURL, feedURL); err == nil {
+			feed.FeedURL = absoluteFeedURL
+		}
+	}
+
+	// Populate the site URL.
+	siteURL := a.atomFeed.Links.originalLink()
+	if siteURL != "" {
+		if absoluteSiteURL, err := urllib.ResolveToAbsoluteURL(baseURL, siteURL); err == nil {
+			feed.SiteURL = absoluteSiteURL
+		}
+	}
+
+	// Populate the feed title.
+	feed.Title = a.atomFeed.Title.body()
+	if feed.Title == "" {
+		feed.Title = feed.SiteURL
+	}
+
+	// Populate the feed description.
+	feed.Description = a.atomFeed.Subtitle.body()
+
+	feed.Language = language.Normalize(a.atomFeed.Language)
+
+	// Populate the feed icon.
+	for _, value := range []string{a.atomFeed.Icon, a.atomFeed.Logo} {
+		if value = strings.TrimSpace(value); value == "" {
+			continue
+		}
+
+		if iconURL, err := urllib.ResolveToAbsoluteURL(feed.SiteURL, value); err == nil {
+			feed.IconURL = iconURL
+			break
+		}
+	}
+
+	feed.Entries = a.populateEntries(feed.SiteURL)
+	return feed
+}
+
+func (a *atom10Adapter) populateEntries(siteURL string) model.Entries {
+	entries := make(model.Entries, 0, len(a.atomFeed.Entries))
+
+	for _, atomEntry := range a.atomFeed.Entries {
+		entry := model.NewEntry()
+
+		// Populate the entry URL.
+		entry.URL = atomEntry.Links.originalLink()
+		if entry.URL != "" {
+			if absoluteEntryURL, err := urllib.ResolveToAbsoluteURL(siteURL, entry.URL); err == nil {
+				entry.URL = absoluteEntryURL
+			}
+		}
+
+		// If the entry has no links, attempt to use its ID as a URL
+		// and if that fails, use the site URL.
+		if entry.URL == "" {
+			if urllib.IsAbsoluteURL(atomEntry.ID) {
+				entry.URL = atomEntry.ID
+			} else {
+				entry.URL = siteURL
+			}
+		}
+
+		// Populate the entry content.
+		entry.Content = atomEntry.Content.body()
+		if entry.Content == "" {
+			entry.Content = atomEntry.Summary.body()
+			if entry.Content == "" {
+				entry.Content = atomEntry.FirstMediaDescription()
+			}
+		}
+
+		// Populate the entry title.
+		entry.Title = atomEntry.Title.title()
+		if entry.Title == "" {
+			entry.Title = sanitizer.TruncateHTML(entry.Content, 100)
+			if entry.Title == "" {
+				entry.Title = entry.URL
+			}
+		}
+
+		// Populate the entry language. xml:lang applies to the whole
+		// subtree it is declared on, so an entry without its own
+		// xml:lang inherits the feed-level value.
+		entry.Language = language.Normalize(atomEntry.Language)
+		if entry.Language == "" {
+			entry.Language = language.Normalize(a.atomFeed.Language)
+		}
+
+		// Populate the entry author.
+		authors := atomEntry.Authors.personNames()
+		if len(authors) == 0 {
+			authors = a.atomFeed.Authors.personNames()
+		}
+
+		entry.Author = strings.Join(authors, ", ")
+
+		// Populate the entry date.
+		for _, value := range []string{atomEntry.Published, atomEntry.Updated} {
+			if value = strings.TrimSpace(value); value == "" {
+				continue
+			}
+
+			parsedDate, err := date.Parse(value)
+			if err != nil {
+				slog.Debug("Unable to parse date from Atom 1.0 feed",
+					slog.String("date", value),
+					slog.String("url", entry.URL),
+					slog.Any("error", err),
+				)
+				continue
+			}
+
+			entry.Date = parsedDate
+			break
+		}
+
+		if entry.Date.IsZero() {
+			entry.Date = time.Now()
+		}
+
+		// Populate categories.
+		entry.Tags = atomEntry.Categories.CategoryNames()
+		if len(entry.Tags) == 0 {
+			entry.Tags = a.atomFeed.Categories.CategoryNames()
+		}
+
+		// Populate the commentsURL if defined.
+		// See https://tools.ietf.org/html/rfc4685#section-4
+		// If the type attribute of the atom:link is omitted, its value is assumed to be "application/atom+xml".
+		// We accept only HTML or XHTML documents for now since the intention is to have the same behavior as RSS.
+		commentsURL := atomEntry.Links.firstLinkWithRelationAndType("replies", "text/html", "application/xhtml+xml")
+		if urllib.IsAbsoluteURL(commentsURL) {
+			entry.CommentsURL = commentsURL
+		}
+
+		// Generate the entry hash.
+		for _, value := range []string{atomEntry.ID, atomEntry.Links.originalLink()} {
+			if value != "" {
+				entry.Hash = crypto.SHA256(value)
+				break
+			}
+		}
+
+		// Populate the entry enclosures.
+		uniqueEnclosuresMap := make(map[string]bool)
+
+		for _, mediaThumbnail := range atomEntry.AllMediaThumbnails() {
+			mediaURL := strings.TrimSpace(mediaThumbnail.URL)
+			if mediaURL == "" {
+				continue
+			}
+
+			if _, found := uniqueEnclosuresMap[mediaURL]; found {
+				continue
+			}
+
+			mediaAbsoluteURL, err := urllib.ResolveToAbsoluteURL(siteURL, mediaURL)
+			if err != nil {
+				slog.Debug("Unable to build absolute URL for media thumbnail",
+					slog.String("url", mediaThumbnail.URL),
+					slog.String("site_url", siteURL),
+					slog.Any("error", err),
+				)
+				continue
+			}
+
+			uniqueEnclosuresMap[mediaAbsoluteURL] = true
+
+			entry.Enclosures = append(entry.Enclosures, &model.Enclosure{
+				URL:      mediaAbsoluteURL,
+				MimeType: mediaThumbnail.MimeType(),
+				Size:     mediaThumbnail.Size(),
+			})
+		}
+
+		for _, link := range atomEntry.Links.findAllLinksWithRelation("enclosure") {
+			absoluteEnclosureURL, err := urllib.ResolveToAbsoluteURL(siteURL, link.Href)
+			if err != nil {
+				slog.Debug("Unable to resolve absolute URL for enclosure",
+					slog.String("enclosure_url", link.Href),
+					slog.String("entry_url", entry.URL),
+					slog.Any("error", err),
+				)
+				continue
+			}
+
+			if _, found := uniqueEnclosuresMap[absoluteEnclosureURL]; found {
+				continue
+			}
+
+			uniqueEnclosuresMap[absoluteEnclosureURL] = true
+
+			length, _ := strconv.ParseInt(link.Length, 10, 0)
+			entry.Enclosures = append(entry.Enclosures, &model.Enclosure{
+				URL:      absoluteEnclosureURL,
+				MimeType: link.Type,
+				Size:     length,
+			})
+		}
+
+		for _, mediaContent := range atomEntry.AllMediaContents() {
+			mediaURL := strings.TrimSpace(mediaContent.URL)
+			if mediaURL == "" {
+				continue
+			}
+
+			mediaAbsoluteURL, err := urllib.ResolveToAbsoluteURL(siteURL, mediaURL)
+			if err != nil {
+				slog.Debug("Unable to build absolute URL for media content",
+					slog.String("url", mediaContent.URL),
+					slog.String("site_url", siteURL),
+					slog.Any("error", err),
+				)
+				continue
+			}
+
+			if _, found := uniqueEnclosuresMap[mediaAbsoluteURL]; found {
+				continue
+			}
+
+			uniqueEnclosuresMap[mediaAbsoluteURL] = true
+
+			entry.Enclosures = append(entry.Enclosures, &model.Enclosure{
+				URL:      mediaAbsoluteURL,
+				MimeType: mediaContent.MimeType(),
+				Size:     mediaContent.Size(),
+			})
+		}
+
+		for _, mediaPeerLink := range atomEntry.AllMediaPeerLinks() {
+			mediaURL := strings.TrimSpace(mediaPeerLink.URL)
+			if mediaURL == "" {
+				continue
+			}
+
+			mediaAbsoluteURL, err := urllib.ResolveToAbsoluteURL(siteURL, mediaURL)
+			if err != nil {
+				slog.Debug("Unable to build absolute URL for media peer link",
+					slog.String("url", mediaPeerLink.URL),
+					slog.String("site_url", siteURL),
+					slog.Any("error", err),
+				)
+				continue
+			}
+
+			if _, found := uniqueEnclosuresMap[mediaAbsoluteURL]; found {
+				continue
+			}
+
+			uniqueEnclosuresMap[mediaAbsoluteURL] = true
+
+			entry.Enclosures = append(entry.Enclosures, &model.Enclosure{
+				URL:      mediaAbsoluteURL,
+				MimeType: mediaPeerLink.MimeType(),
+				Size:     mediaPeerLink.Size(),
+			})
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries
+}

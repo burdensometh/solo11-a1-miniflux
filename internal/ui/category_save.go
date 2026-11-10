@@ -1,0 +1,48 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package ui // import "miniflux.app/v2/internal/ui"
+
+import (
+	"net/http"
+
+	"miniflux.app/v2/internal/http/request"
+	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/model"
+	"miniflux.app/v2/internal/ui/form"
+	"miniflux.app/v2/internal/ui/view"
+	"miniflux.app/v2/internal/validator"
+)
+
+func (h *handler) saveCategory(w http.ResponseWriter, r *http.Request) {
+	user, err := h.store.UserByID(request.UserID(r))
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	categoryForm := form.NewCategoryForm(r)
+
+	view := view.New(h.tpl, r)
+	view.Set("form", categoryForm)
+	view.Set("menu", "categories")
+	view.Set("user", user)
+	navMetadata, _ := h.store.GetNavMetadata(user.ID)
+	view.Set("countUnread", navMetadata.CountUnread)
+	view.Set("countErrorFeeds", navMetadata.CountErrorFeeds)
+
+	categoryCreationRequest := &model.CategoryCreationRequest{Title: categoryForm.Title}
+
+	if validationErr := validator.ValidateCategoryCreation(h.store, user.ID, categoryCreationRequest); validationErr != nil {
+		view.Set("errorMessage", validationErr.Translate(user.Language))
+		response.HTML(w, r, view.Render("create_category"))
+		return
+	}
+
+	if _, err = h.store.CreateCategory(user.ID, categoryCreationRequest); err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	response.HTMLRedirect(w, r, h.routePath("/categories"))
+}

@@ -1,0 +1,76 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package ui // import "miniflux.app/v2/internal/ui"
+
+import (
+	"net/http"
+
+	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/http/request"
+	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/model"
+	feedHandler "miniflux.app/v2/internal/reader/handler"
+	"miniflux.app/v2/internal/ui/form"
+	"miniflux.app/v2/internal/ui/view"
+)
+
+func (h *handler) showChooseSubscriptionPage(w http.ResponseWriter, r *http.Request) {
+	user, err := h.store.UserByID(request.UserID(r))
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	categories, err := h.store.Categories(user.ID)
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	view := view.New(h.tpl, r)
+	view.Set("categories", categories)
+	view.Set("menu", "feeds")
+	view.Set("user", user)
+	navMetadata, _ := h.store.GetNavMetadata(user.ID)
+	view.Set("countUnread", navMetadata.CountUnread)
+	view.Set("countErrorFeeds", navMetadata.CountErrorFeeds)
+	view.Set("defaultUserAgent", config.Opts.HTTPClientUserAgent())
+	view.Set("hasProxyConfigured", config.Opts.HasHTTPClientProxyURLConfigured())
+
+	subscriptionForm := form.NewSubscriptionForm(r)
+	if validationErr := subscriptionForm.Validate(); validationErr != nil {
+		view.Set("form", subscriptionForm)
+		view.Set("errorMessage", validationErr.Translate(user.Language))
+		response.HTML(w, r, view.Render("add_subscription"))
+		return
+	}
+
+	feed, localizedError := feedHandler.CreateFeed(h.store, user.ID, &model.FeedCreationRequest{
+		CategoryID:                  subscriptionForm.CategoryID,
+		FeedURL:                     subscriptionForm.URL,
+		IgnoreEntryUpdates:          subscriptionForm.IgnoreEntryUpdates,
+		AllowSelfSignedCertificates: subscriptionForm.AllowSelfSignedCertificates,
+		UserAgent:                   subscriptionForm.UserAgent,
+		Cookie:                      subscriptionForm.Cookie,
+		Username:                    subscriptionForm.Username,
+		Password:                    subscriptionForm.Password,
+		RewriteRules:                subscriptionForm.RewriteRules,
+		UrlRewriteRules:             subscriptionForm.UrlRewriteRules,
+		BlocklistRules:              subscriptionForm.BlocklistRules,
+		KeeplistRules:               subscriptionForm.KeeplistRules,
+		KeepFilterEntryRules:        subscriptionForm.KeepFilterEntryRules,
+		BlockFilterEntryRules:       subscriptionForm.BlockFilterEntryRules,
+		FetchViaProxy:               subscriptionForm.FetchViaProxy,
+		DisableHTTP2:                subscriptionForm.DisableHTTP2,
+		ProxyURL:                    subscriptionForm.ProxyURL,
+	})
+	if localizedError != nil {
+		view.Set("form", subscriptionForm)
+		view.Set("errorMessage", localizedError.Translate(user.Language))
+		response.HTML(w, r, view.Render("add_subscription"))
+		return
+	}
+
+	response.HTMLRedirect(w, r, h.routePath("/feed/%d/entries", feed.ID))
+}

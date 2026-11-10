@@ -1,0 +1,109 @@
+{{ define "feed_list" }}
+    <div class="items">
+        {{ range .feeds }}
+        <article
+            class="item feed-item {{ if ne .ParsingErrorCount 0 }}feed-parsing-error{{ else if ne .UnreadCount 0 }}feed-has-unread{{ end }}"
+            aria-labelledby="feed-title-{{ .ID }} feed-entries-counter-{{ .ID }}"
+            tabindex="-1"
+        >
+            <header class="item-header" dir="auto">
+                <h2 id="feed-title-{{ .ID }}" class="item-title">
+                    <a href="{{ routePath "/feed/%d/entries" .ID }}">
+                        {{ if and (.Icon) (gt .Icon.IconID 0) }}
+                        <img src="{{ routePath "/feed-icon/%s" .Icon.ExternalIconID }}" width="16" height="16" loading="lazy" alt="">
+                        {{ end }}
+                        {{ if .Disabled }} 🚫 {{ end }}
+                        {{ .Title }}
+                    </a>
+                </h2>
+                <span id="feed-entries-counter-{{ .ID }}" class="feed-entries-counter">
+                    <span aria-hidden="true">(</span>
+                    <span class="sr-only">{{ plural "page.unread_entry_count" .UnreadCount .UnreadCount }}</span>
+                    <span aria-hidden="true">{{ .UnreadCount }} /</span>
+                    <span class="sr-only">{{ plural "page.total_entry_count" .NumberOfVisibleEntries .NumberOfVisibleEntries }}</span>
+                    <span aria-hidden="true">{{ .NumberOfVisibleEntries }} )</span>
+                </span>
+                <span class="category">
+                    <a id="feed-category-{{ .ID }}"
+                       href="{{ routePath "/category/%d/entries" .Category.ID }}"
+                       aria-label="{{ t "page.category_label" .Category.Title }}"
+                    >
+                        {{ .Category.Title }}
+                    </a>
+                </span>
+            </header>
+            <div class="item-meta">
+                <ul class="item-meta-info">
+                    <li class="item-meta-info-site-url" dir="auto">
+                        <a href="{{ .SiteURL }}" title="{{ .SiteURL }}" {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ else }}rel="noopener"{{ end }} data-original-link="{{ $.user.MarkReadOnView }}">
+                            {{ domain .SiteURL }}
+                        </a>
+                    </li>
+                    <li class="item-meta-info-checked-at">
+                        {{ t "page.feeds.last_check" }} <time datetime="{{ isodate .CheckedAt }}" title="{{ isodate .CheckedAt }}">{{ elapsed $.user.Timezone .CheckedAt }}</time>
+                    </li>
+                    {{ $nextCheckDuration := duration .NextCheckAt }}
+                    {{ if ne $nextCheckDuration "" }}
+                    <li class="item-meta-info-next-check-at">
+                        {{ t "page.feeds.next_check" }} <time datetime="{{ isodate .NextCheckAt }}" title="{{ isodate .NextCheckAt }}">{{ $nextCheckDuration }}</time>
+                    </li>
+                    {{ end }}
+                </ul>
+                <ul class="item-meta-icons">
+                    <li class="item-meta-icons-refresh">
+                        <form action="{{ routePath "/feed/%d/refresh" .ID }}" method="post">
+                            <input type="hidden" name="csrf" value="{{ $.csrf }}">
+                            <button aria-describedby="feed-title-{{ .ID }}">
+                                {{ icon "refresh" }}<span class="icon-label">{{ t "menu.refresh_feed" }}</span>
+                            </button>
+                        </form>
+                    </li>
+                    <li class="item-meta-icons-edit">
+                        <a href="{{ routePath "/feed/%d/edit" .ID }}" aria-describedby="feed-title-{{ .ID }}">
+                            {{ icon "edit" }}<span class="icon-label">{{ t "menu.edit_feed" }}</span>
+                        </a>
+                    </li>
+                    <li class="item-meta-icons-remove">
+                        <button
+                            aria-describedby="feed-title-{{ .ID }}"
+                            data-confirm="true"
+                            data-label-question="{{ t "confirm.question" }}"
+                            data-label-yes="{{ t "confirm.yes" }}"
+                            data-label-no="{{ t "confirm.no" }}"
+                            data-label-loading="{{ t "confirm.loading" }}"
+                            {{ if $.categoryID }}
+                                data-url="{{ routePath "/category/%d/feed/%d/remove" $.categoryID .ID }}"
+                            {{ else }}
+                                data-url="{{ routePath "/feed/%d/remove" .ID }}"
+                            {{ end }}>{{ icon "delete" }}<span class="icon-label">{{ t "action.remove" }}</span></button>
+                    </li>
+                    {{ if .UnreadCount }}
+                    <li class="item-meta-icons-mark-as-read">
+                        <button
+                            aria-describedby="feed-title-{{ .ID }}"
+                            data-confirm="true"
+                            data-label-question="{{ t "confirm.question" }}"
+                            data-label-yes="{{ t "confirm.yes" }}"
+                            data-label-no="{{ t "confirm.no" }}"
+                            data-label-loading="{{ t "confirm.loading" }}"
+                            {{ if $.categoryID }}
+                            data-url="{{ routePath "/category/%d/feed/%d/mark-all-as-read" $.categoryID .ID }}"
+                        {{ else }}
+                            data-url="{{ routePath "/feed/%d/mark-all-as-read" .ID }}"
+                        {{ end }}>
+                                {{ icon "read" }}<span class="icon-label">{{ t "menu.mark_all_as_read" }}</span>
+                        </button>
+                    </li>
+                    {{ end }}
+                </ul>
+            </div>
+            {{ if ne .ParsingErrorCount 0 }}
+            <div class="parsing-error">
+                <strong title="{{ .ParsingErrorMsg }}" class="parsing-error-count">{{ plural "page.feeds.error_count" .ParsingErrorCount .ParsingErrorCount }}</strong>
+                - <small class="parsing-error-message">{{ .ParsingErrorMsg }}</small>
+            </div>
+            {{ end }}
+        </article>
+        {{ end }}
+    </div>
+{{ end }}

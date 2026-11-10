@@ -1,0 +1,275 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package validator // import "miniflux.app/v2/internal/validator"
+
+import (
+	"strings"
+	"unicode"
+
+	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/locale"
+	"miniflux.app/v2/internal/model"
+	"miniflux.app/v2/internal/storage"
+	"miniflux.app/v2/internal/timezone"
+)
+
+// ValidateUserCreationWithPassword validates user creation with a password.
+func ValidateUserCreationWithPassword(store *storage.Storage, request *model.UserCreationRequest) *locale.LocalizedError {
+	if request.Username == "" {
+		return locale.NewLocalizedError("error.user_mandatory_fields")
+	}
+
+	if store.UserExists(request.Username) {
+		return locale.NewLocalizedError("error.user_already_exists")
+	}
+
+	if err := validateUsername(request.Username); err != nil {
+		return err
+	}
+
+	if err := validatePassword(request.Password); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ValidateUserModification validates user modifications.
+func ValidateUserModification(store *storage.Storage, userID int64, changes *model.UserModificationRequest) *locale.LocalizedError {
+	if changes.Username != nil {
+		if *changes.Username == "" {
+			return locale.NewLocalizedError("error.user_mandatory_fields")
+		}
+
+		if err := validateUsername(*changes.Username); err != nil {
+			return err
+		}
+
+		if store.AnotherUserExists(userID, *changes.Username) {
+			return locale.NewLocalizedError("error.user_already_exists")
+		}
+	}
+
+	if changes.Password != nil {
+		if config.Opts.DisableLocalAuth() {
+			return locale.NewLocalizedError("error.local_auth_disabled")
+		}
+
+		if err := validatePassword(*changes.Password); err != nil {
+			return err
+		}
+	}
+
+	if changes.Theme != nil {
+		if err := validateTheme(*changes.Theme); err != nil {
+			return err
+		}
+	}
+
+	if changes.Language != nil {
+		if err := validateLanguage(*changes.Language); err != nil {
+			return err
+		}
+	}
+
+	if changes.Timezone != nil {
+		if err := validateTimezone(*changes.Timezone); err != nil {
+			return err
+		}
+	}
+
+	if changes.EntryDirection != nil {
+		if err := ValidateDirection(*changes.EntryDirection); err != nil {
+			return locale.NewLocalizedError("error.invalid_entry_direction")
+		}
+	}
+
+	if changes.EntryOrder != nil {
+		if err := validateEntrySortingOrder(*changes.EntryOrder); err != nil {
+			return err
+		}
+	}
+
+	if changes.EntriesPerPage != nil {
+		if err := validateEntriesPerPage(*changes.EntriesPerPage); err != nil {
+			return err
+		}
+	}
+
+	if changes.CategoriesSortingOrder != nil {
+		if err := validateCategoriesSortingOrder(*changes.CategoriesSortingOrder); err != nil {
+			return err
+		}
+	}
+
+	if changes.DisplayMode != nil {
+		if err := validateDisplayMode(*changes.DisplayMode); err != nil {
+			return err
+		}
+	}
+
+	if changes.GestureNav != nil {
+		if err := validateGestureNav(*changes.GestureNav); err != nil {
+			return err
+		}
+	}
+
+	if changes.DefaultReadingSpeed != nil {
+		if err := validateReadingSpeed(*changes.DefaultReadingSpeed); err != nil {
+			return err
+		}
+	}
+
+	if changes.CJKReadingSpeed != nil {
+		if err := validateReadingSpeed(*changes.CJKReadingSpeed); err != nil {
+			return err
+		}
+	}
+
+	if changes.DefaultHomePage != nil {
+		if err := validateDefaultHomePage(*changes.DefaultHomePage); err != nil {
+			return err
+		}
+	}
+
+	if changes.MediaPlaybackRate != nil {
+		if err := validateMediaPlaybackRate(*changes.MediaPlaybackRate); err != nil {
+			return err
+		}
+	}
+
+	if changes.BlockFilterEntryRules != nil {
+		if *changes.BlockFilterEntryRules != "" {
+			if err := IsValidFilterRules(*changes.BlockFilterEntryRules, "block"); err != nil {
+				return err
+			}
+		}
+	}
+
+	if changes.KeepFilterEntryRules != nil {
+		if *changes.KeepFilterEntryRules != "" {
+			if err := IsValidFilterRules(*changes.KeepFilterEntryRules, "keep"); err != nil {
+				return err
+			}
+		}
+	}
+
+	if changes.ExternalFontHosts != nil {
+		if !IsValidDomainList(*changes.ExternalFontHosts) {
+			return locale.NewLocalizedError("error.settings_invalid_domain_list")
+		}
+	}
+
+	return nil
+}
+
+func validateReadingSpeed(readingSpeed int) *locale.LocalizedError {
+	if readingSpeed <= 0 {
+		return locale.NewLocalizedError("error.settings_reading_speed_is_positive")
+	}
+	return nil
+}
+
+func validatePassword(password string) *locale.LocalizedError {
+	if len(password) < 6 {
+		return locale.NewLocalizedError("error.password_min_length")
+	}
+	return nil
+}
+
+// validateUsername return an error if the `username` argument contains
+// a character that isn't alphanumerical nor `_` and `-`.
+//
+// Note: this validation should not be applied to previously created usernames,
+// and cannot be applied to Google/OIDC accounts creation because the email
+// address is used for the username field.
+func validateUsername(username string) *locale.LocalizedError {
+	if strings.ContainsFunc(username, func(r rune) bool {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			return false
+		}
+		if r == '_' || r == '-' || r == '@' || r == '.' {
+			return false
+		}
+		return true
+	}) {
+		return locale.NewLocalizedError("error.invalid_username")
+	}
+	return nil
+}
+
+func validateTheme(theme string) *locale.LocalizedError {
+	themes := model.Themes()
+	if _, found := themes[theme]; !found {
+		return locale.NewLocalizedError("error.invalid_theme")
+	}
+	return nil
+}
+
+func validateLanguage(language string) *locale.LocalizedError {
+	languages := locale.AvailableLanguages
+	if _, found := languages[language]; !found {
+		return locale.NewLocalizedError("error.invalid_language")
+	}
+	return nil
+}
+
+func validateTimezone(timezoneValue string) *locale.LocalizedError {
+	if !timezone.IsValid(timezoneValue) {
+		return locale.NewLocalizedError("error.invalid_timezone")
+	}
+	return nil
+}
+
+func validateEntriesPerPage(entriesPerPage int) *locale.LocalizedError {
+	if entriesPerPage < 1 || entriesPerPage > model.MaxEntryLimit {
+		return locale.NewLocalizedError("error.entries_per_page_invalid")
+	}
+	return nil
+}
+
+// validateEntrySortingOrder must accept only the values of the
+// entry_sorting_order enum type in the database.
+func validateEntrySortingOrder(order string) *locale.LocalizedError {
+	if order != "published_at" && order != "created_at" {
+		return locale.NewLocalizedError("error.invalid_entry_order")
+	}
+	return nil
+}
+
+func validateCategoriesSortingOrder(order string) *locale.LocalizedError {
+	if order != "alphabetical" && order != "unread_count" {
+		return locale.NewLocalizedError("error.invalid_categories_sorting_order")
+	}
+	return nil
+}
+
+func validateDisplayMode(displayMode string) *locale.LocalizedError {
+	if displayMode != "fullscreen" && displayMode != "standalone" && displayMode != "minimal-ui" && displayMode != "browser" {
+		return locale.NewLocalizedError("error.invalid_display_mode")
+	}
+	return nil
+}
+
+func validateGestureNav(gestureNav string) *locale.LocalizedError {
+	if gestureNav != "none" && gestureNav != "tap" && gestureNav != "swipe" {
+		return locale.NewLocalizedError("error.invalid_gesture_nav")
+	}
+	return nil
+}
+
+func validateDefaultHomePage(defaultHomePage string) *locale.LocalizedError {
+	defaultHomePages := model.HomePages()
+	if _, found := defaultHomePages[defaultHomePage]; !found {
+		return locale.NewLocalizedError("error.invalid_default_home_page")
+	}
+	return nil
+}
+
+func validateMediaPlaybackRate(mediaPlaybackRate float64) *locale.LocalizedError {
+	if mediaPlaybackRate < 0.25 || mediaPlaybackRate > 4 {
+		return locale.NewLocalizedError("error.settings_media_playback_rate_range")
+	}
+	return nil
+}

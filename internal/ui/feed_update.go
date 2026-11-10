@@ -1,0 +1,85 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package ui // import "miniflux.app/v2/internal/ui"
+
+import (
+	"net/http"
+
+	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/http/request"
+	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/model"
+	"miniflux.app/v2/internal/ui/form"
+	"miniflux.app/v2/internal/ui/view"
+	"miniflux.app/v2/internal/validator"
+)
+
+func (h *handler) updateFeed(w http.ResponseWriter, r *http.Request) {
+	loggedUser, err := h.store.UserByID(request.UserID(r))
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	feedID := request.RouteInt64Param(r, "feedID")
+	feed, err := h.store.FeedByID(loggedUser.ID, feedID)
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	if feed == nil {
+		response.HTMLNotFound(w, r)
+		return
+	}
+
+	categories, err := h.store.Categories(loggedUser.ID)
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	feedForm := form.NewFeedForm(r)
+
+	view := view.New(h.tpl, r)
+	view.Set("form", feedForm)
+	view.Set("categories", categories)
+	view.Set("feed", feed)
+	view.Set("menu", "feeds")
+	view.Set("user", loggedUser)
+	navMetadata, _ := h.store.GetNavMetadata(loggedUser.ID)
+	view.Set("countUnread", navMetadata.CountUnread)
+	view.Set("countErrorFeeds", navMetadata.CountErrorFeeds)
+	view.Set("defaultUserAgent", config.Opts.HTTPClientUserAgent())
+	view.Set("hasProxyConfigured", config.Opts.HasHTTPClientProxyURLConfigured())
+
+	feedModificationRequest := &model.FeedModificationRequest{
+		FeedURL:               model.OptionalString(feedForm.FeedURL),
+		SiteURL:               model.OptionalString(feedForm.SiteURL),
+		Title:                 model.OptionalString(feedForm.Title),
+		Description:           model.OptionalString(feedForm.Description),
+		CategoryID:            model.OptionalNumber(feedForm.CategoryID),
+		BlocklistRules:        model.OptionalString(feedForm.BlocklistRules),
+		KeeplistRules:         model.OptionalString(feedForm.KeeplistRules),
+		RewriteRules:          model.OptionalString(feedForm.RewriteRules),
+		UrlRewriteRules:       model.OptionalString(feedForm.UrlRewriteRules),
+		ProxyURL:              model.OptionalString(feedForm.ProxyURL),
+		BlockFilterEntryRules: model.OptionalString(feedForm.BlockFilterEntryRules),
+		KeepFilterEntryRules:  model.OptionalString(feedForm.KeepFilterEntryRules),
+	}
+
+	if validationErr := validator.ValidateFeedModification(h.store, loggedUser.ID, feed.ID, feedModificationRequest); validationErr != nil {
+		view.Set("errorMessage", validationErr.Translate(loggedUser.Language))
+		response.HTML(w, r, view.Render("edit_feed"))
+		return
+	}
+
+	err = h.store.UpdateFeed(feedForm.Merge(feed))
+	if err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
+
+	response.HTMLRedirect(w, r, h.routePath("/feed/%d/entries", feed.ID))
+}

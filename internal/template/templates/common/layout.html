@@ -1,0 +1,189 @@
+{{ define "base" }}
+<!DOCTYPE html>
+<html lang="{{ replace .language "_" "-"}}">
+<head>
+    <meta charset="utf-8">
+    <title>{{template "title" .}} - Miniflux</title>
+
+    <meta name="apple-mobile-web-app-title" content="Miniflux">
+    <meta name="googlebot" content="notranslate">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex,nofollow">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="{{ theme_color .theme "light" }}" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="{{ theme_color .theme "dark" }}" media="(prefers-color-scheme: dark)">
+
+    <link rel="manifest" href="{{ routePath "/manifest.json" }}" crossorigin="use-credentials">
+
+    <link rel="apple-touch-icon" href="{{ iconPath "icon-180.png" }}">
+    <link rel="icon" href="{{ iconPath "icon.svg" }}">
+
+    {{ $cspNonce := nonce }}
+    {{ csp .user $cspNonce | safeHTML }}
+    <link rel="stylesheet" nonce="{{ $cspNonce }}" type="text/css" href="{{ routePath "/stylesheets/%s/%s.css" .theme_checksum .theme }}">
+    <script nonce="{{ $cspNonce }}" src="{{ routePath "/js/%s/%s.js" .app_js_checksum "app" }}" type="module"></script>
+    {{ if .user -}}
+        {{ if .user.Stylesheet -}}
+        <style nonce="{{ $cspNonce }}">{{ .user.Stylesheet | safeCSS }}</style>
+        {{ end -}}
+        {{ if .user.CustomJS -}}
+        <script type="module" nonce="{{ $cspNonce }}">{{ .user.CustomJS | safeJS }}</script>
+        {{ end -}}
+    {{ end -}}
+</head>
+<body
+    data-service-worker-url="{{ routePath "/js/%s/%s.js" .sw_js_checksum "service-worker" }}"
+    {{ if .csrf }}data-csrf-token="{{ .csrf }}"{{ end }}
+    data-add-subscription-url="{{ routePath "/subscribe" }}"
+    data-entries-status-url="{{ routePath "/entry/status" }}"
+    data-refresh-all-feeds-url="{{ routePath "/feeds/refresh" }}"
+    {{ if .webAuthnEnabled }}
+    data-webauthn-register-begin-url="{{ routePath "/webauthn/register/begin" }}"
+    data-webauthn-register-finish-url="{{ routePath "/webauthn/register/finish" }}"
+    data-webauthn-login-begin-url="{{ routePath "/webauthn/login/begin" }}"
+    data-webauthn-login-finish-url="{{ routePath "/webauthn/login/finish" }}"
+    data-webauthn-delete-all-url="{{ routePath "/webauthn/deleteall" }}"
+    {{ end }}
+    {{ if .user }}
+        {{ if not .user.KeyboardShortcuts }}data-disable-keyboard-shortcuts="true"{{ end }}
+        data-mark-as-read-on-view="{{ if .user.MarkReadOnView }}true{{ else }}false{{ end }}"
+    {{ end }}>
+
+    {{ if .user }}
+    <a class="skip-to-content-link" href="#main">{{ t "skip_to_content" }}</a>
+    <header class="header">
+        <nav>
+            <div class="logo" data-toggle-button-label="{{ t "menu.title" }}">
+                <a aria-label="{{ t "menu.home_page" }}" href="{{ routePath (printf "/%s" .user.DefaultHomePage) }}">
+                    Mini<span>flux</span>
+                </a>
+                {{ icon "chevron-down"}}
+            </div>
+            <ul id="header-menu">
+                <li {{ if eq .menu "unread" }}class="active"{{ end }} title="{{ t "tooltip.keyboard_shortcuts" "g u" }}">
+                    <a href="{{ routePath "/unread" }}"
+                        data-page="unread"
+                        {{ if gt .countUnread 0 }}
+                        aria-label="{{ t "menu.unread" }}, {{ plural "page.unread_entry_count" .countUnread .countUnread }}"
+                        {{ end }}
+                    >
+                        {{ icon "entries" }}{{ t "menu.unread" }}
+                        {{ if gt .countUnread 0 }}
+                        <span class="unread-counter-wrapper" aria-hidden="true">(<span class="unread-counter">{{ .countUnread }}</span>)</span>
+                        {{ end }}
+                    </a>
+                </li>
+                <li {{ if eq .menu "starred" }}class="active"{{ end }} title="{{ t "tooltip.keyboard_shortcuts" "g b" }}">
+                    <a href="{{ routePath "/starred" }}" data-page="starred">{{ icon "star" }}{{ t "menu.starred" }}</a>
+                </li>
+                <li {{ if eq .menu "history" }}class="active"{{ end }} title="{{ t "tooltip.keyboard_shortcuts" "g h" }}">
+                    <a href="{{ routePath "/history" }}" data-page="history">{{ icon "history" }}{{ t "menu.history" }}</a>
+                </li>
+                <li {{ if eq .menu "feeds" }}class="active"{{ end }} title="{{ t "tooltip.keyboard_shortcuts" "g f" }}">
+                    <a href="{{ routePath "/feeds" }}" data-page="feeds">{{ icon "feeds" }}{{ t "menu.feeds" }}
+                      {{ if gt .countErrorFeeds 0 }}
+                          <span class="error-feeds-counter-wrapper">(<span class="error-feeds-counter">{{ .countErrorFeeds }}</span>)</span>
+                      {{ end }}
+                    </a>
+                    <a href="{{ routePath "/subscribe" }}" title="{{ t "tooltip.keyboard_shortcuts" "+" }}" aria-label="{{ t "menu.add_feed" }}">
+                        (+)
+                    </a>
+                </li>
+                <li {{ if eq .menu "categories" }}class="active"{{ end }} title="{{ t "tooltip.keyboard_shortcuts" "g c" }}">
+                    <a href="{{ routePath "/categories" }}" data-page="categories">{{ icon "categories" }}{{ t "menu.categories" }}</a>
+                </li>
+                <li {{ if eq .menu "search" }}class="active"{{ end }} title="{{ t "tooltip.keyboard_shortcuts" "/" }}">
+                    <a href="{{ routePath "/search" }}" data-page="search">{{ icon "search" }}{{ t "menu.search" }}</a>
+                </li>
+                <li {{ if eq .menu "settings" }}class="active"{{ end }} title="{{ t "tooltip.keyboard_shortcuts" "g s" }}">
+                    <a href="{{ routePath "/settings" }}" data-page="settings">{{ icon "settings" }}{{ t "menu.settings" }}</a>
+                </li>
+                {{ if not hasAuthProxy }}
+                    <li>
+                        <form action="{{ routePath "/logout" }}" method="post" class="logout-form">
+                            <input type="hidden" name="csrf" value="{{ .csrf }}">
+                            <button type="submit" class="logout-button" title="{{ t "tooltip.logged_user" .user.Username }}">{{ icon "logout" }}{{ t "menu.logout" }}</button>
+                        </form>
+                    </li>
+                {{ end }}
+            </ul>
+        </nav>
+    </header>
+    {{ end }}
+    {{ if .flashSuccessMessage }}
+        <div role="alert" class="flash-message alert alert-success">{{ .flashSuccessMessage }}</div>
+    {{ end }}
+    {{ if .flashErrorMessage }}
+        <div role="alert" class="flash-error-message alert alert-error">{{ .flashErrorMessage }}</div>
+    {{ end }}
+
+    {{template "page_header" .}}
+
+    <main id="main">
+        {{template "content" .}}
+    </main>
+    <dialog id="keyboard-shortcuts-modal" closedby="any">
+        <form method="dialog">
+            <button class="btn-close-modal" aria-label="Close" autofocus>x</button>
+        </form>
+        <h3 tabindex="-1" id="dialog-title">{{ t "page.keyboard_shortcuts.title" }}</h3>
+
+        <div class="keyboard-shortcuts">
+            <p>{{ t "page.keyboard_shortcuts.subtitle.sections" }}</p>
+            <ul>
+                <li>{{ t "page.keyboard_shortcuts.go_to_unread" }} = <strong>g + u</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_starred" }} = <strong>g + b</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_history" }} = <strong>g + h</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_feeds" }} = <strong>g + f</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_categories" }} = <strong>g + c</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_settings" }} = <strong>g + s</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.show_keyboard_shortcuts" }} = <strong>?</strong></li>
+                <li>{{ t "menu.add_feed" }} = <strong>+</strong></li>
+            </ul>
+
+            <p>{{ t "page.keyboard_shortcuts.subtitle.items" }}</p>
+            <ul>
+                <li>{{ t "page.keyboard_shortcuts.go_to_previous_item" }} = <strong>p</strong>, <strong>k</strong>, <strong>&#x23F4;</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_next_item" }} = <strong>n</strong>, <strong>j</strong>, <strong>&#x23F5;</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_feed" }} = <strong>F</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_top_item" }} = <strong>g + g</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_bottom_item" }} = <strong>G</strong></li>
+            </ul>
+
+            <p>{{ t "page.keyboard_shortcuts.subtitle.pages" }}</p>
+            <ul>
+                <li>{{ t "page.keyboard_shortcuts.go_to_previous_page" }} = <strong>h</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_next_page" }} = <strong>l</strong></li>
+            </ul>
+
+            <p>{{ t "page.keyboard_shortcuts.subtitle.actions" }}</p>
+            <ul>
+                <li>{{ t "page.keyboard_shortcuts.open_item" }} = <strong>o</strong>, <strong>Enter</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.open_original" }} = <strong>v</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.open_original_same_window" }} = <strong>V</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.open_comments" }} = <strong>c</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.open_comments_same_window" }} = <strong>C</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.toggle_read_status_next" }} = <strong>m</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.toggle_read_status_prev" }} = <strong>M</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.mark_page_as_read" }} = <strong>A</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.toggle_star_status" }} = <strong>f</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.save_article" }} = <strong>s</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.toggle_entry_attachments" }} = <strong>a</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.scroll_item_to_top" }} = <strong>z + t</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.refresh_all_feeds" }} = <strong>R</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.remove_feed" }} = <strong>#</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.go_to_search" }} = <strong>/</strong></li>
+                <li>{{ t "page.keyboard_shortcuts.close_modal" }} = <strong>Esc</strong></li>
+            </ul>
+        </div>
+    </dialog>
+
+    <template id="icon-read">{{ icon "read" }}</template>
+    <template id="icon-unread">{{ icon "unread" }}</template>
+    <template id="icon-star">{{ icon "star" }}</template>
+    <template id="icon-unstar">{{ icon "unstar" }}</template>
+    <template id="icon-save">{{ icon "save" }}</template>
+</body>
+</html>
+{{ end }}

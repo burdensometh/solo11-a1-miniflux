@@ -1,0 +1,93 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package validator // import "miniflux.app/v2/internal/validator"
+
+import (
+	"testing"
+
+	"miniflux.app/v2/internal/model"
+)
+
+func TestValidateRange(t *testing.T) {
+	if err := ValidateRange(-1, 0); err == nil {
+		t.Error(`An invalid offset should generate a error`)
+	}
+
+	if err := ValidateRange(0, -1); err == nil {
+		t.Error(`An invalid limit should generate a error`)
+	}
+
+	if err := ValidateRange(0, model.MaxEntryLimit+1); err == nil {
+		t.Error(`A limit above MaxEntryLimit should generate an error`)
+	}
+
+	if err := ValidateRange(42, 42); err != nil {
+		t.Error(`A valid offset and limit should not generate any error`)
+	}
+
+	if err := ValidateRange(0, model.MaxEntryLimit); err != nil {
+		t.Error(`A limit equal to MaxEntryLimit should not generate an error`)
+	}
+}
+
+func TestValidateDirection(t *testing.T) {
+	for _, status := range []string{"asc", "desc"} {
+		if err := ValidateDirection(status); err != nil {
+			t.Error(`A valid direction should not generate any error`)
+		}
+	}
+
+	if err := ValidateDirection("invalid"); err == nil {
+		t.Error(`An invalid direction should generate a error`)
+	}
+}
+
+func TestIsValidRegex(t *testing.T) {
+	scenarios := map[string]bool{
+		"(?i)miniflux": true,
+		"[":            false,
+	}
+
+	for expr, expected := range scenarios {
+		result := IsValidRegex(expr)
+		if result != expected {
+			t.Errorf(`Unexpected result, got %v instead of %v`, result, expected)
+		}
+	}
+}
+
+func TestIsValidDomain(t *testing.T) {
+	scenarios := map[string]bool{
+		"example.org":          true,
+		"example":              false,
+		"example.":             false,
+		"example..":            false,
+		"mail.example.com:443": false,
+		"*.example.com":        false,
+	}
+
+	for domain, expected := range scenarios {
+		result := IsValidDomain(domain)
+		if result != expected {
+			t.Errorf(`Unexpected result, got %v instead of %v`, result, expected)
+		}
+	}
+}
+
+func TestIsValidDomainList(t *testing.T) {
+	scenarios := map[string]bool{
+		"example.org":                 true,
+		"example.org example.com":     true,
+		"example.org invalid..domain": false,
+		"example.org example.com:443": false,
+		"":                            false,
+	}
+
+	for domains, expected := range scenarios {
+		result := IsValidDomainList(domains)
+		if result != expected {
+			t.Errorf(`Unexpected result for %q, got %v instead of %v`, domains, result, expected)
+		}
+	}
+}
