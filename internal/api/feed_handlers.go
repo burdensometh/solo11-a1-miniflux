@@ -84,6 +84,13 @@ func (h *handler) refreshFeedHandler(w http.ResponseWriter, r *http.Request) {
 	forceRefresh := request.QueryBoolParam(r, "force", false)
 	localizedError := feedHandler.RefreshFeed(h.store, userID, feedID, forceRefresh)
 	if localizedError != nil {
+		if errors.Is(localizedError.Error(), feedHandler.ErrFeedRefreshInProgress) {
+			// The feed is already being refreshed by a background worker:
+			// the refresh request is accepted but not duplicated.
+			response.NoContent(w, r)
+			return
+		}
+
 		response.JSONServerError(w, r, localizedError.Error())
 		return
 	}

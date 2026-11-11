@@ -11,12 +11,34 @@ import (
 
 // Storage handles all operations related to the database.
 type Storage struct {
-	db *sql.DB
+	db                *sql.DB
+	feedRefreshLocker *feedRefreshLocker
 }
 
 // NewStorage returns a new Storage.
 func NewStorage(db *sql.DB) *Storage {
-	return &Storage{db}
+	return &Storage{
+		db:                db,
+		feedRefreshLocker: newFeedRefreshLocker(db),
+	}
+}
+
+// TryLockFeedRefresh attempts to acquire an exclusive lock on the feed to
+// guarantee that only one refresh runs at a time for a given subscription,
+// even when several processes share the same database.
+//
+// The lock is implemented with a PostgreSQL session-level advisory lock: it
+// is released automatically by the database if the process crashes or is
+// killed, so a feed can never stay locked forever. It returns false when the
+// feed is already being refreshed.
+func (s *Storage) TryLockFeedRefresh(feedID int64) bool {
+	return s.feedRefreshLocker.tryLock(feedID)
+}
+
+// UnlockFeedRefresh releases the lock previously acquired with
+// TryLockFeedRefresh.
+func (s *Storage) UnlockFeedRefresh(feedID int64) {
+	s.feedRefreshLocker.unlock(feedID)
 }
 
 // DatabaseVersion returns the version of the database which is in use.

@@ -4,6 +4,7 @@
 package ui // import "miniflux.app/v2/internal/ui"
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -19,6 +20,13 @@ func (h *handler) refreshFeed(w http.ResponseWriter, r *http.Request) {
 	feedID := request.RouteInt64Param(r, "feedID")
 	forceRefresh := request.QueryBoolParam(r, "forceRefresh", false)
 	if localizedError := feedHandler.RefreshFeed(h.store, request.UserID(r), feedID, forceRefresh); localizedError != nil {
+		if errors.Is(localizedError.Error(), feedHandler.ErrFeedRefreshInProgress) {
+			// The feed is already being refreshed by a background worker:
+			// there is nothing more to do.
+			response.HTMLRedirect(w, r, h.routePath("/feed/%d/entries", feedID))
+			return
+		}
+
 		slog.Warn("Unable to refresh feed",
 			slog.Int64("user_id", request.UserID(r)),
 			slog.Int64("feed_id", feedID),

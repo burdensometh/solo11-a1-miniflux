@@ -12,6 +12,7 @@ import (
 	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/integration"
 	"miniflux.app/v2/internal/locale"
+	"miniflux.app/v2/internal/metric"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/proxyrotator"
 	"miniflux.app/v2/internal/reader/fetcher"
@@ -22,9 +23,10 @@ import (
 )
 
 var (
-	ErrCategoryNotFound = errors.New("fetcher: category not found")
-	ErrFeedNotFound     = errors.New("fetcher: feed not found")
-	ErrDuplicatedFeed   = errors.New("fetcher: duplicated feed")
+	ErrCategoryNotFound      = errors.New("fetcher: category not found")
+	ErrFeedNotFound          = errors.New("fetcher: feed not found")
+	ErrDuplicatedFeed        = errors.New("fetcher: duplicated feed")
+	ErrFeedRefreshInProgress = errors.New("fetcher: feed refresh already in progress")
 )
 
 func getTranslatedLocalizedError(store *storage.Storage, userID int64, originalFeed *model.Feed, localizedError *locale.LocalizedErrorWrapper) *locale.LocalizedErrorWrapper {
@@ -203,6 +205,25 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 		slog.Int64("feed_id", feedID),
 		slog.Bool("force_refresh", forceRefresh),
 	)
+
+	// Serialize the refreshes of a given subscription across all workers and
+	// processes: when a refresh is already running, the duplicate one is
+	// skipped because the running one already fetches the latest content.
+	// The lock is held at the database level and released automatically if
+	// the process dies, so a feed can never stay locked forever.
+	if !store.TryLockFeedRefresh(feedID) {
+		slog.Info("Skipped feed refresh: another refresh is already in progress for this feed",
+			slog.Int64("user_id", userID),
+			slog.Int64("feed_id", feedID),
+		)
+
+		if config.Opts.HasMetricsCollector() {
+			metric.FeedRefreshSkipped.WithLabelValues(metric.ReasonAlreadyInProgress).Inc()
+		}
+
+		return locale.NewLocalizedErrorWrapper(ErrFeedRefreshInProgress, "")
+	}
+	defer store.UnlockFeedRefresh(feedID)
 
 	originalFeed, storeErr := store.FeedByID(userID, feedID)
 	if storeErr != nil {

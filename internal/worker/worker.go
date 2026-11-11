@@ -4,6 +4,7 @@
 package worker // import "miniflux.app/v2/internal/worker"
 
 import (
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -45,6 +46,13 @@ func (w *worker) Run(c <-chan model.Job, shutdown <-chan struct{}, wg *sync.Wait
 
 		startTime := time.Now()
 		localizedError := feedHandler.RefreshFeed(w.store, job.UserID, job.FeedID, false)
+
+		if localizedError != nil && errors.Is(localizedError.Error(), feedHandler.ErrFeedRefreshInProgress) {
+			// The feed is already being refreshed by another worker or
+			// process: the duplicate job is discarded and must not be
+			// counted in the refresh duration metrics.
+			continue
+		}
 
 		if config.Opts.HasMetricsCollector() {
 			status := metric.StatusSuccess

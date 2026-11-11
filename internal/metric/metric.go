@@ -19,6 +19,11 @@ const (
 	StatusError   = "error"
 )
 
+// Reason label values for the FeedRefreshSkipped metric.
+const (
+	ReasonAlreadyInProgress = "already_in_progress"
+)
+
 // Prometheus Metrics.
 var (
 	BackgroundFeedRefreshDuration = prometheus.NewHistogramVec(
@@ -29,6 +34,15 @@ var (
 			Buckets:   prometheus.LinearBuckets(1, 2, 15),
 		},
 		[]string{"status"},
+	)
+
+	FeedRefreshSkipped = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "miniflux",
+			Name:      "feed_refresh_skipped_total",
+			Help:      "Number of feed refreshes skipped because another refresh of the same feed was already in progress",
+		},
+		[]string{"reason"},
 	)
 
 	ArchiveEntriesDuration = prometheus.NewHistogramVec(
@@ -141,6 +155,7 @@ type collector struct {
 // NewCollector initializes a new metric collector.
 func NewCollector(store *storage.Storage, refreshInterval time.Duration) *collector {
 	prometheus.MustRegister(BackgroundFeedRefreshDuration)
+	prometheus.MustRegister(FeedRefreshSkipped)
 	prometheus.MustRegister(ArchiveEntriesDuration)
 	prometheus.MustRegister(usersGauge)
 	prometheus.MustRegister(feedsGauge)
