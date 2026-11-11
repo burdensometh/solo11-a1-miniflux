@@ -448,6 +448,7 @@
     "menu.title": "Μενού",
     "menu.unread": "Μη αναγνωσμένα",
     "menu.users": "Χρήστες",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "Συγγραφείς:",
     "page.about.authors_value": "Frédéric Guillot και συνεισφέροντες",
     "page.about.build_date": "Ημερομηνία Κατασκευής:",

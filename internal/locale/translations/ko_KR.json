@@ -445,6 +445,7 @@
     "menu.title": "메뉴",
     "menu.unread": "읽지 않음",
     "menu.users": "사용자 목록",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "작성자:",
     "page.about.authors_value": "Frédéric Guillot 및 기여자",
     "page.about.build_date": "빌드 일시:",

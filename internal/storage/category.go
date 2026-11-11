@@ -64,10 +64,19 @@ func (s *Storage) Category(userID, categoryID int64) (*model.Category, error) {
 // FirstCategory returns the first category for the given user.
 // It returns ErrNoCategory if the user does not have any category.
 func (s *Storage) FirstCategory(userID int64) (*model.Category, error) {
+	return firstCategory(s.db, userID)
+}
+
+// FirstCategoryTx is like FirstCategory but runs inside the given transaction.
+func (s *Storage) FirstCategoryTx(tx *sql.Tx, userID int64) (*model.Category, error) {
+	return firstCategory(tx, userID)
+}
+
+func firstCategory(db dbQuerier, userID int64) (*model.Category, error) {
 	query := `SELECT id, user_id, title, hide_globally FROM categories WHERE user_id=$1 ORDER BY title ASC LIMIT 1`
 
 	var category model.Category
-	err := s.db.QueryRow(query, userID).Scan(&category.ID, &category.UserID, &category.Title, &category.HideGlobally)
+	err := db.QueryRow(query, userID).Scan(&category.ID, &category.UserID, &category.Title, &category.HideGlobally)
 
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -81,10 +90,19 @@ func (s *Storage) FirstCategory(userID int64) (*model.Category, error) {
 
 // CategoryByTitle finds a category by its case-insensitive title, preferring an exact match.
 func (s *Storage) CategoryByTitle(userID int64, title string) (*model.Category, error) {
+	return categoryByTitle(s.db, userID, title)
+}
+
+// CategoryByTitleTx is like CategoryByTitle but runs inside the given transaction.
+func (s *Storage) CategoryByTitleTx(tx *sql.Tx, userID int64, title string) (*model.Category, error) {
+	return categoryByTitle(tx, userID, title)
+}
+
+func categoryByTitle(db dbQuerier, userID int64, title string) (*model.Category, error) {
 	var category model.Category
 
 	query := `SELECT id, user_id, title, hide_globally FROM categories WHERE user_id=$1 AND lower(title)=lower($2) ORDER BY title=$2 DESC, id ASC LIMIT 1`
-	err := s.db.QueryRow(query, userID, title).Scan(&category.ID, &category.UserID, &category.Title, &category.HideGlobally)
+	err := db.QueryRow(query, userID, title).Scan(&category.ID, &category.UserID, &category.Title, &category.HideGlobally)
 
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -180,6 +198,15 @@ func (s *Storage) CategoriesWithFeedCount(userID int64, sortOrder string) (model
 
 // CreateCategory creates a new category.
 func (s *Storage) CreateCategory(userID int64, request *model.CategoryCreationRequest) (*model.Category, error) {
+	return createCategory(s.db, userID, request)
+}
+
+// CreateCategoryTx is like CreateCategory but runs inside the given transaction.
+func (s *Storage) CreateCategoryTx(tx *sql.Tx, userID int64, request *model.CategoryCreationRequest) (*model.Category, error) {
+	return createCategory(tx, userID, request)
+}
+
+func createCategory(db dbQuerier, userID int64, request *model.CategoryCreationRequest) (*model.Category, error) {
 	var category model.Category
 
 	query := `
@@ -193,7 +220,7 @@ func (s *Storage) CreateCategory(userID int64, request *model.CategoryCreationRe
 			title,
 			hide_globally
 	`
-	err := s.db.QueryRow(
+	err := db.QueryRow(
 		query,
 		userID,
 		request.Title,

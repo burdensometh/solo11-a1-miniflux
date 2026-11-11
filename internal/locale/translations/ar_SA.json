@@ -460,6 +460,7 @@
     "menu.title": "القائمة",
     "menu.unread": "غير مقروء",
     "menu.users": "المستخدمون",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "المؤلفون:",
     "page.about.authors_value": "Frédéric Guillot والمساهمون",
     "page.about.build_date": "تاريخ البناء:",

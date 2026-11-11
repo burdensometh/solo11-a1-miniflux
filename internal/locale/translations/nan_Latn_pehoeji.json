@@ -445,6 +445,7 @@
     "menu.title": "Tō-lám",
     "menu.unread": "Ah-bōe tha̍k",
     "menu.users": "Sú-iōng-lâng",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "Chok-chiá: ",
     "page.about.authors_value": "Frédéric Guillot kap kòng-hiàn-chiá",
     "page.about.build_date": "Kiàn-tì li̍t-kî:",

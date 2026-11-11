@@ -451,6 +451,7 @@
     "menu.title": "Menu",
     "menu.unread": "Nieprzeczytane",
     "menu.users": "Użytkownicy",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "Autorzy:",
     "page.about.authors_value": "Frédéric Guillot i współtwórcy",
     "page.about.build_date": "Data opracowania:",

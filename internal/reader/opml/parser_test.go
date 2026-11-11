@@ -235,6 +235,78 @@ func TestParseOpmlVersion1WithSeveralNestedOutlines(t *testing.T) {
 	}
 }
 
+func TestParseOpmlFlattensNestedCategoriesToNearestNamedFolder(t *testing.T) {
+	data := `<?xml version="1.0" encoding="utf-8"?>
+	<opml version="2.0">
+		<head><title>Nested</title></head>
+		<body>
+			<outline text="Root">
+				<outline text="Tech">
+					<outline text="Programming" xmlUrl="http://example.org/feed1/" htmlUrl="http://example.org/1"/>
+					<outline xmlUrl="http://example.org/feed2/" htmlUrl="http://example.org/2"/>
+				</outline>
+				<outline xmlUrl="http://example.org/feed3/" htmlUrl="http://example.org/3"/>
+			</outline>
+		</body>
+	</opml>
+	`
+
+	expected := []subcription{
+		{Title: "http://example.org/1", FeedURL: "http://example.org/feed1/", SiteURL: "http://example.org/1", CategoryName: "Programming"},
+		{Title: "http://example.org/2", FeedURL: "http://example.org/feed2/", SiteURL: "http://example.org/2", CategoryName: "Tech"},
+		{Title: "http://example.org/3", FeedURL: "http://example.org/feed3/", SiteURL: "http://example.org/3", CategoryName: "Root"},
+	}
+
+	subscriptions, err := parse(bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(subscriptions) != len(expected) {
+		t.Fatalf("Wrong number of subscriptions: %d instead of %d", len(subscriptions), len(expected))
+	}
+
+	for i := range subscriptions {
+		if subscriptions[i] != expected[i] {
+			t.Errorf("Subscription is different:\ngot:  %+v\nwant: %+v", subscriptions[i], expected[i])
+		}
+	}
+}
+
+func TestParseOpmlUsesCategoryAttribute(t *testing.T) {
+	data := `<?xml version="1.0" encoding="utf-8"?>
+	<opml version="2.0">
+		<head><title>Categories</title></head>
+		<body>
+			<outline text="Feed 1" xmlUrl="http://example.org/feed1/" category="/Root/Tech/Programming"/>
+			<outline text="Feed 2" xmlUrl="http://example.org/feed2/" category="News, /Root/Other"/>
+			<outline text="Feed 3" xmlUrl="http://example.org/feed3/"/>
+		</body>
+	</opml>
+	`
+
+	expected := []subcription{
+		{Title: "Feed 1", FeedURL: "http://example.org/feed1/", SiteURL: "http://example.org/feed1/", CategoryName: "Programming"},
+		{Title: "Feed 2", FeedURL: "http://example.org/feed2/", SiteURL: "http://example.org/feed2/", CategoryName: "News"},
+		{Title: "Feed 3", FeedURL: "http://example.org/feed3/", SiteURL: "http://example.org/feed3/"},
+	}
+
+	subscriptions, err := parse(bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(subscriptions) != len(expected) {
+		t.Fatalf("Wrong number of subscriptions: %d instead of %d", len(subscriptions), len(expected))
+	}
+
+	for i := range subscriptions {
+		if subscriptions[i] != expected[i] {
+			t.Errorf("Subscription is different:\ngot:  %+v\nwant: %+v", subscriptions[i], expected[i])
+		}
+	}
+}
+
 func TestParseOpmlWithInvalidCharacterEntity(t *testing.T) {
 	data := `<?xml version="1.0"?>
 	<opml version="1.0">

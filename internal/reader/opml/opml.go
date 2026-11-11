@@ -32,6 +32,7 @@ type opmlOutline struct {
 	Text        string                `xml:"text,attr"`
 	FeedURL     string                `xml:"xmlUrl,attr,omitempty"`
 	SiteURL     string                `xml:"htmlUrl,attr,omitempty"`
+	Category    string                `xml:"category,attr,omitempty"`
 	Description string                `xml:"description,attr,omitempty"`
 	Outlines    opmlOutlineCollection `xml:"outline,omitempty"`
 

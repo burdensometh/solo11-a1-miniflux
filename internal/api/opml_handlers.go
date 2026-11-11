@@ -27,7 +27,7 @@ func (h *handler) exportFeedsHandler(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) importFeedsHandler(w http.ResponseWriter, r *http.Request) {
 	opmlHandler := opml.NewHandler(h.store)
-	err := opmlHandler.Import(request.UserID(r), r.Body)
+	result, err := opmlHandler.ImportWithResult(request.UserID(r), r.Body)
 	defer r.Body.Close()
 	if err != nil {
 		if errors.Is(err, storage.ErrNoCategory) {
@@ -38,5 +38,9 @@ func (h *handler) importFeedsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.JSONCreated(w, r, importFeedsResponse{Message: "Feeds imported successfully"})
+	response.JSONCreated(w, r, importFeedsResponse{
+		Message: "Feeds imported successfully",
+		Created: result.Created,
+		Skipped: result.Skipped,
+	})
 }

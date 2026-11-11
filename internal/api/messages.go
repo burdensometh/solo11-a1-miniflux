@@ -50,6 +50,8 @@ type feedCreationResponse struct {
 
 type importFeedsResponse struct {
 	Message string `json:"message"`
+	Created int    `json:"created"`
+	Skipped int    `json:"skipped"`
 }
 
 type versionResponse struct {

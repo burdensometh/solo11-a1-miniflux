@@ -445,6 +445,7 @@
     "menu.title": "導覽",
     "menu.unread": "未讀",
     "menu.users": "使用者",
+    "opml.import.success": "已匯入 %d 個訂閱源，略過 %d 個重複項。",
     "page.about.authors_label": "作者：",
     "page.about.authors_value": "Frédéric Guillot 及貢獻者",
     "page.about.build_date": "建構日期：",

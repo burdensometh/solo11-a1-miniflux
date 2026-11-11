@@ -451,6 +451,7 @@
     "menu.title": "Meniu",
     "menu.unread": "Necitit",
     "menu.users": "Utilizatori",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "Autori:",
     "page.about.authors_value": "Frédéric Guillot și contribuitorii",
     "page.about.build_date": "Dată Build:",

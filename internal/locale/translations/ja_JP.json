@@ -445,6 +445,7 @@
     "menu.title": "メニュー",
     "menu.unread": "未読",
     "menu.users": "ユーザー一覧",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "作者:",
     "page.about.authors_value": "Frédéric Guillot と貢献者",
     "page.about.build_date": "ビルド日時:",

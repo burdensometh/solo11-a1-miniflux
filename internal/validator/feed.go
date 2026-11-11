@@ -14,6 +14,8 @@ import (
 
 // ValidateFeedCreation validates feed creation.
 func ValidateFeedCreation(store *storage.Storage, userID int64, request *model.FeedCreationRequest) *locale.LocalizedError {
+	// Keep the historical check order for callers that rely on the first error:
+	// mandatory fields, URL syntax, duplicate URL, category, then feed settings.
 	if request.FeedURL == "" || request.CategoryID <= 0 {
 		return locale.NewLocalizedError("error.feed_mandatory_fields")
 	}
@@ -44,6 +46,23 @@ func ValidateFeedCreation(store *storage.Storage, userID int64, request *model.F
 	}
 	if !categoryExists {
 		return locale.NewLocalizedError("error.feed_category_not_found")
+	}
+
+	return ValidateFeedCreationRequest(request)
+}
+
+// ValidateFeedCreationRequest validates the fields of a feed creation request
+// without touching the database. Callers must supply a resolved, positive
+// CategoryID. This is useful inside an import transaction, where categories
+// created by the same transaction are not yet visible through the regular
+// storage connection.
+func ValidateFeedCreationRequest(request *model.FeedCreationRequest) *locale.LocalizedError {
+	if request.FeedURL == "" || request.CategoryID <= 0 {
+		return locale.NewLocalizedError("error.feed_mandatory_fields")
+	}
+
+	if !urllib.IsAbsoluteURL(request.FeedURL) {
+		return locale.NewLocalizedError("error.invalid_feed_url")
 	}
 
 	if !IsValidRegex(request.BlocklistRules) {

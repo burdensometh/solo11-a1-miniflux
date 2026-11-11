@@ -451,6 +451,7 @@
     "menu.title": "Меню",
     "menu.unread": "Непрочитане",
     "menu.users": "Користувачі",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "Автори:",
     "page.about.authors_value": "Frédéric Guillot та учасники",
     "page.about.build_date": "Дата побудови:",

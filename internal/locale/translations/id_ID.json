@@ -445,6 +445,7 @@
     "menu.title": "Menu",
     "menu.unread": "Belum Dibaca",
     "menu.users": "Pengguna",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "Para Pengembang:",
     "page.about.authors_value": "Frédéric Guillot dan kontributor",
     "page.about.build_date": "Tanggal Penyusunan:",

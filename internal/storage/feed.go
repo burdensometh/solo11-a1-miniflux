@@ -70,10 +70,28 @@ func (s *Storage) CategoryFeedExists(userID, categoryID, feedID int64) (bool, er
 
 // FeedURLExists returns true if the given feed URL already exists for the user.
 func (s *Storage) FeedURLExists(userID int64, feedURL string) bool {
+	exists, err := feedURLExists(s.db, userID, feedURL)
+	return err == nil && exists
+}
+
+// FeedURLExistsTx is like FeedURLExists but runs inside the given transaction
+// and reports query failures instead of swallowing them.
+func (s *Storage) FeedURLExistsTx(tx *sql.Tx, userID int64, feedURL string) (bool, error) {
+	return feedURLExists(tx, userID, feedURL)
+}
+
+func feedURLExists(db dbQuerier, userID int64, feedURL string) (bool, error) {
 	var result bool
 	query := `SELECT true FROM feeds WHERE user_id=$1 AND feed_url=$2 LIMIT 1`
-	s.db.QueryRow(query, userID, feedURL).Scan(&result)
-	return result
+
+	switch err := db.QueryRow(query, userID, feedURL).Scan(&result); {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf(`store: unable to check if feed URL exists: %w`, err)
+	default:
+		return result, nil
+	}
 }
 
 // AnotherFeedURLExists returns true if another feed with the same URL exists for the user.
@@ -221,9 +239,54 @@ func (s *Storage) FeedByID(userID, feedID int64) (*model.Feed, error) {
 	return feed, nil
 }
 
-// CreateFeed creates a new feed.
+// CreateFeed creates a new feed and its entries.
 func (s *Storage) CreateFeed(feed *model.Feed) error {
-	sql := `
+	if err := createFeed(s.db, feed); err != nil {
+		return err
+	}
+
+	for _, entry := range feed.Entries {
+		entry.FeedID = feed.ID
+		entry.UserID = feed.UserID
+
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf(`store: unable to start transaction: %v`, err)
+		}
+
+		entryExists, err := s.entryExists(tx, entry)
+		if err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				return fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
+			}
+			return err
+		}
+
+		if !entryExists {
+			if err := s.createEntry(tx, entry); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					return fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
+				}
+				return err
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf(`store: unable to commit transaction: %v`, err)
+		}
+	}
+
+	return nil
+}
+
+// CreateFeedTx creates a feed inside the given transaction. It intentionally
+// does not create entries; callers that need entries should use CreateFeed.
+func (s *Storage) CreateFeedTx(tx *sql.Tx, feed *model.Feed) error {
+	return createFeed(tx, feed)
+}
+
+func createFeed(db dbQuerier, feed *model.Feed) error {
+	query := `
 		INSERT INTO feeds (
 			feed_url,
 			site_url,
@@ -261,8 +324,8 @@ func (s *Storage) CreateFeed(feed *model.Feed) error {
 		RETURNING
 			id
 	`
-	err := s.db.QueryRow(
-		sql,
+	err := db.QueryRow(
+		query,
 		feed.FeedURL,
 		feed.SiteURL,
 		feed.Title,
@@ -296,37 +359,6 @@ func (s *Storage) CreateFeed(feed *model.Feed) error {
 	).Scan(&feed.ID)
 	if err != nil {
 		return fmt.Errorf(`store: unable to create feed %q: %v`, feed.FeedURL, err)
-	}
-
-	for _, entry := range feed.Entries {
-		entry.FeedID = feed.ID
-		entry.UserID = feed.UserID
-
-		tx, err := s.db.Begin()
-		if err != nil {
-			return fmt.Errorf(`store: unable to start transaction: %v`, err)
-		}
-
-		entryExists, err := s.entryExists(tx, entry)
-		if err != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				return fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
-			}
-			return err
-		}
-
-		if !entryExists {
-			if err := s.createEntry(tx, entry); err != nil {
-				if rollbackErr := tx.Rollback(); rollbackErr != nil {
-					return fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
-				}
-				return err
-			}
-		}
-
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf(`store: unable to commit transaction: %v`, err)
-		}
 	}
 
 	return nil

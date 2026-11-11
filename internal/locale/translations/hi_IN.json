@@ -448,6 +448,7 @@
     "menu.title": "मेनू",
     "menu.unread": "अपठित",
     "menu.users": "उपयोगकर्ताओं",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "रचयिता:",
     "page.about.authors_value": "Frédéric Guillot और योगदानकर्ता",
     "page.about.build_date": "बनाने की तिथि:",

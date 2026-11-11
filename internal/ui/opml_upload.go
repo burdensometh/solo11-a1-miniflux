@@ -56,11 +56,14 @@ func (h *handler) uploadOPML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if impErr := opml.NewHandler(h.store).Import(user.ID, file); impErr != nil {
+	result, impErr := opml.NewHandler(h.store).ImportWithResult(user.ID, file)
+	if impErr != nil {
 		view.Set("errorMessage", impErr)
 		response.HTML(w, r, view.Render("import"))
 		return
 	}
+
+	request.WebSession(r).SetSuccessMessage(locale.NewPrinter(user.Language).Printf("opml.import.success", result.Created, result.Skipped))
 
 	response.HTMLRedirect(w, r, h.routePath("/feeds"))
 }
@@ -104,11 +107,14 @@ func (h *handler) fetchOPML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if impErr := opml.NewHandler(h.store).Import(user.ID, responseHandler.Body(config.Opts.HTTPClientMaxBodySize())); impErr != nil {
+	result, impErr := opml.NewHandler(h.store).ImportWithResult(user.ID, responseHandler.Body(config.Opts.HTTPClientMaxBodySize()))
+	if impErr != nil {
 		view.Set("errorMessage", impErr)
 		response.HTML(w, r, view.Render("import"))
 		return
 	}
+
+	request.WebSession(r).SetSuccessMessage(locale.NewPrinter(user.Language).Printf("opml.import.success", result.Created, result.Skipped))
 
 	response.HTMLRedirect(w, r, h.routePath("/feeds"))
 }

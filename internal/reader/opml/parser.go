@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"strings"
 
 	"miniflux.app/v2/internal/reader/encoding"
 )
@@ -32,12 +33,16 @@ func getSubscriptionsFromOutlines(outlines opmlOutlineCollection, category strin
 
 	for _, outline := range outlines {
 		if outline.IsSubscription() {
+			categoryName := category
+			if outlineCategory := flattenCategoryName(outline.Category); outlineCategory != "" {
+				categoryName = outlineCategory
+			}
 			subscriptions = append(subscriptions, subcription{
 				Title:        outline.GetTitle(),
 				FeedURL:      outline.FeedURL,
 				SiteURL:      outline.GetSiteURL(),
 				Description:  outline.Description,
-				CategoryName: category,
+				CategoryName: categoryName,
 
 				RewriteRules:                outline.RewriteRules,
 				UrlRewriteRules:             outline.UrlRewriteRules,
@@ -56,8 +61,41 @@ func getSubscriptionsFromOutlines(outlines opmlOutlineCollection, category strin
 				IgnoreEntryUpdates:          outline.IgnoreEntryUpdates,
 			})
 		} else if outline.Outlines.HasChildren() {
-			subscriptions = append(subscriptions, getSubscriptionsFromOutlines(outline.Outlines, outline.GetTitle())...)
+			// Miniflux categories are a single flat level. Flatten nested OPML
+			// folders to the nearest named folder (the feed's most specific
+			// grouping). Anonymous container outlines are transparent: recurse
+			// with the last named ancestor instead of losing the category.
+			nextCategory := category
+			if outlineCategory := flattenCategoryName(outline.Category); outlineCategory != "" {
+				nextCategory = outlineCategory
+			} else if title := strings.TrimSpace(outline.GetTitle()); title != "" {
+				nextCategory = title
+			}
+			subscriptions = append(subscriptions, getSubscriptionsFromOutlines(outline.Outlines, nextCategory)...)
 		}
 	}
 	return subscriptions
+}
+
+// flattenCategoryName converts an OPML category attribute to a single
+// Miniflux category name. The OPML spec allows a comma-separated list of
+// slash-delimited paths; Miniflux stores one flat category per feed, so the
+// first non-empty entry is used and its most specific (last) path segment is
+// retained. This mirrors the behavior used for nested outlines.
+func flattenCategoryName(rawCategory string) string {
+	for _, entry := range strings.Split(rawCategory, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		parts := strings.Split(entry, "/")
+		for index := len(parts) - 1; index >= 0; index-- {
+			if part := strings.TrimSpace(parts[index]); part != "" {
+				return part
+			}
+		}
+	}
+
+	return ""
 }

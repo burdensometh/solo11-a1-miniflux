@@ -445,6 +445,7 @@
     "menu.title": "Menu",
     "menu.unread": "Chưa đọc",
     "menu.users": "Người dùng",
+    "opml.import.success": "Imported %d feeds, skipped %d duplicates.",
     "page.about.authors_label": "Tác giả:",
     "page.about.authors_value": "Frédéric Guillot và những người đóng góp",
     "page.about.build_date": "Ngày biên dịch:",

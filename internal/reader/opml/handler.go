@@ -4,13 +4,25 @@
 package opml // import "miniflux.app/v2/internal/reader/opml"
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
+	"strings"
 
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/storage"
 	"miniflux.app/v2/internal/validator"
 )
+
+// ImportResult describes the outcome of an OPML import.
+type ImportResult struct {
+	// Created is the number of feeds inserted by this import.
+	Created int `json:"created"`
+	// Skipped is the number of OPML entries that were not inserted because
+	// their URL was already present for the user or appeared earlier in the
+	// same file.
+	Skipped int `json:"skipped"`
+}
 
 // Handler handles the logic for OPML import/export.
 type Handler struct {
@@ -54,47 +66,106 @@ func (h *Handler) Export(userID int64) (string, error) {
 	return serialize(subscriptions), nil
 }
 
-// Import parses and create feeds from an OPML import.
+// Import parses and creates feeds from an OPML import. It discards the
+// per-entry counters; callers that need them should use ImportWithResult.
 func (h *Handler) Import(userID int64, data io.Reader) error {
+	_, err := h.ImportWithResult(userID, data)
+	return err
+}
+
+// ImportWithResult parses and creates feeds from an OPML import atomically.
+// Either every feed and category is persisted, or none is. Duplicate URLs
+// (already present for the user, or repeated within the file) are skipped
+// rather than updated, preserving the existing feed's state and settings.
+func (h *Handler) ImportWithResult(userID int64, data io.Reader) (ImportResult, error) {
 	subscriptions, err := parse(data)
 	if err != nil {
-		return err
+		return ImportResult{}, err
 	}
 
+	subscriptions, duplicates := deduplicateSubscriptions(subscriptions)
+	result := ImportResult{Skipped: duplicates}
+
+	err = h.store.RunInTransaction(func(tx *sql.Tx) error {
+		for _, subscription := range subscriptions {
+			exists, err := h.store.FeedURLExistsTx(tx, userID, subscription.FeedURL)
+			if err != nil {
+				return err
+			}
+			if exists {
+				result.Skipped++
+				continue
+			}
+
+			category, err := h.resolveCategoryTx(tx, userID, subscription.CategoryName)
+			if err != nil {
+				return err
+			}
+
+			if validationErr := validateSubscription(category.ID, subscription); validationErr != nil {
+				return fmt.Errorf(`opml: invalid feed settings for %q: %w`, subscription.FeedURL, validationErr)
+			}
+
+			feed := &model.Feed{
+				UserID:      userID,
+				Title:       subscription.Title,
+				FeedURL:     subscription.FeedURL,
+				SiteURL:     subscription.SiteURL,
+				Description: subscription.Description,
+				Category:    category,
+			}
+			applySubscriptionSettings(feed, subscription)
+			if err := h.store.CreateFeedTx(tx, feed); err != nil {
+				return fmt.Errorf(`opml: unable to create this feed: %q: %w`, subscription.FeedURL, err)
+			}
+
+			result.Created++
+		}
+
+		return nil
+	})
+	if err != nil {
+		// The transaction was rolled back: do not report partial counters.
+		return ImportResult{}, err
+	}
+
+	return result, nil
+}
+
+// deduplicateSubscriptions keeps the first occurrence of each feed URL and
+// returns how many entries were dropped. The first occurrence wins so that
+// import order (and therefore the OPML document) determines the category and
+// settings for a feed listed more than once.
+func deduplicateSubscriptions(subscriptions []subcription) ([]subcription, int) {
+	seen := make(map[string]struct{}, len(subscriptions))
+	unique := make([]subcription, 0, len(subscriptions))
+	duplicates := 0
+
 	for _, subscription := range subscriptions {
-		if h.store.FeedURLExists(userID, subscription.FeedURL) {
+		feedURL := strings.TrimSpace(subscription.FeedURL)
+		if feedURL == "" {
+			duplicates++
 			continue
 		}
 
-		category, err := h.resolveCategory(userID, subscription.CategoryName)
-		if err != nil {
-			return err
+		if _, found := seen[feedURL]; found {
+			duplicates++
+			continue
 		}
 
-		if validationErr := validateSubscription(userID, category.ID, h.store, subscription); validationErr != nil {
-			return fmt.Errorf(`opml: invalid feed settings for %q: %w`, subscription.FeedURL, validationErr)
-		}
-
-		feed := &model.Feed{
-			UserID:      userID,
-			Title:       subscription.Title,
-			FeedURL:     subscription.FeedURL,
-			SiteURL:     subscription.SiteURL,
-			Description: subscription.Description,
-			Category:    category,
-		}
-		applySubscriptionSettings(feed, subscription)
-		if err := h.store.CreateFeed(feed); err != nil {
-			return fmt.Errorf(`opml: unable to create this feed: %q`, subscription.FeedURL)
-		}
+		seen[feedURL] = struct{}{}
+		subscription.FeedURL = feedURL
+		subscription.SiteURL = strings.TrimSpace(subscription.SiteURL)
+		unique = append(unique, subscription)
 	}
 
-	return nil
+	return unique, duplicates
 }
 
-func (h *Handler) resolveCategory(userID int64, categoryName string) (*model.Category, error) {
+func (h *Handler) resolveCategoryTx(tx *sql.Tx, userID int64, categoryName string) (*model.Category, error) {
+	categoryName = strings.TrimSpace(categoryName)
 	if categoryName == "" {
-		category, err := h.store.FirstCategory(userID)
+		category, err := h.store.FirstCategoryTx(tx, userID)
 		if err != nil {
 			return nil, fmt.Errorf("opml: unable to find first category: %w", err)
 		}
@@ -104,13 +175,13 @@ func (h *Handler) resolveCategory(userID int64, categoryName string) (*model.Cat
 		return category, nil
 	}
 
-	category, err := h.store.CategoryByTitle(userID, categoryName)
+	category, err := h.store.CategoryByTitleTx(tx, userID, categoryName)
 	if err != nil {
 		return nil, fmt.Errorf("opml: unable to search category by title: %w", err)
 	}
 
 	if category == nil {
-		category, err = h.store.CreateCategory(userID, &model.CategoryCreationRequest{Title: categoryName})
+		category, err = h.store.CreateCategoryTx(tx, userID, &model.CategoryCreationRequest{Title: categoryName})
 		if err != nil {
 			return nil, fmt.Errorf(`opml: unable to create this category: %q`, categoryName)
 		}
@@ -137,7 +208,7 @@ func applySubscriptionSettings(feed *model.Feed, s subcription) {
 	feed.IgnoreEntryUpdates = s.IgnoreEntryUpdates
 }
 
-func validateSubscription(userID, categoryID int64, store *storage.Storage, s subcription) error {
+func validateSubscription(categoryID int64, s subcription) error {
 	feedCreationRequest := &model.FeedCreationRequest{
 		FeedURL:                     s.FeedURL,
 		CategoryID:                  categoryID,
@@ -158,7 +229,7 @@ func validateSubscription(userID, categoryID int64, store *storage.Storage, s su
 		UrlRewriteRules:             s.UrlRewriteRules,
 	}
 
-	if validationErr := validator.ValidateFeedCreation(store, userID, feedCreationRequest); validationErr != nil {
+	if validationErr := validator.ValidateFeedCreationRequest(feedCreationRequest); validationErr != nil {
 		return validationErr.Error()
 	}
 
