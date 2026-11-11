@@ -110,6 +110,13 @@
                 <li>
                     <form method="post" action="{{ routePath "/entry/share/%d" .entry.ID }}">
                         <input type="hidden" name="csrf" value="{{ .csrf }}">
+                        <select name="expiration" class="page-button" aria-label="{{ t "entry.share.title" }}">
+                            <option value="1">1d</option>
+                            <option value="7">7d</option>
+                            <option value="30" selected>30d</option>
+                            <option value="90">90d</option>
+                            <option value="0">∞</option>
+                        </select>
                         <button type="submit" class="page-button">
                             {{ icon "share" }}<span class="icon-label">{{ t "entry.share.label" }}</span>
                         </button>

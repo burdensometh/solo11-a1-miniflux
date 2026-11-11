@@ -4,7 +4,10 @@
 package ui // import "miniflux.app/v2/internal/ui"
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
@@ -12,9 +15,38 @@ import (
 	"miniflux.app/v2/internal/ui/view"
 )
 
+// defaultShareExpirationDays is used when the share form does not specify a
+// lifetime. Links created before this feature existed remain permanent; new
+// links get a finite lifetime by default.
+const defaultShareExpirationDays = 30
+
+// allowedShareExpirations maps accepted form values to a lifetime in days.
+// Zero means the link never expires.
+var allowedShareExpirations = map[int]bool{0: true, 1: true, 7: true, 30: true, 90: true}
+
+func parseShareExpiration(value string) (time.Duration, error) {
+	if value == "" {
+		value = strconv.Itoa(defaultShareExpirationDays)
+	}
+
+	days, err := strconv.Atoi(value)
+	if err != nil || !allowedShareExpirations[days] {
+		return 0, fmt.Errorf("invalid share link expiration: %q", value)
+	}
+
+	return time.Duration(days) * 24 * time.Hour, nil
+}
+
 func (h *handler) createSharedEntry(w http.ResponseWriter, r *http.Request) {
 	entryID := request.RouteInt64Param(r, "entryID")
-	shareCode, err := h.store.EntryShareCode(request.UserID(r), entryID)
+
+	expiration, err := parseShareExpiration(r.FormValue("expiration"))
+	if err != nil {
+		response.HTMLBadRequest(w, r, err)
+		return
+	}
+
+	shareCode, err := h.store.EntryShareCode(request.UserID(r), entryID, expiration)
 	if err != nil {
 		response.HTMLServerError(w, r, err)
 		return

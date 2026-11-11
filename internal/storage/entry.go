@@ -377,7 +377,7 @@ func (s *Storage) ArchiveEntries(status string, interval time.Duration, limit in
 			WHERE
 				status=$1 AND
 				starred is false AND
-				share_code='' AND
+				(share_code='' OR share_expires_at <= now()) AND
 				created_at < now() - $2::interval
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
@@ -488,7 +488,8 @@ func (s *Storage) FlushHistory(userID int64) error {
 	query := `
 		WITH deleted AS (
 			DELETE FROM entries
-			WHERE user_id=$1 AND status=$2 AND starred is false AND share_code=''
+			WHERE user_id=$1 AND status=$2 AND starred is false
+				AND (share_code='' OR share_expires_at <= now())
 			RETURNING feed_id, hash
 		)
 		INSERT INTO entry_tombstones (feed_id, hash)
@@ -641,33 +642,48 @@ func (s *Storage) MarkCategoryAsRead(userID, categoryID int64, before time.Time)
 	return nil
 }
 
-// EntryShareCode returns the share code of the provided entry.
-// It generates a new one if not already defined.
-func (s *Storage) EntryShareCode(userID int64, entryID int64) (shareCode string, err error) {
-	query := `SELECT share_code FROM entries WHERE user_id=$1 AND id=$2`
-	err = s.db.QueryRow(query, userID, entryID).Scan(&shareCode)
-	if err != nil {
-		err = fmt.Errorf(`store: unable to get share code for entry #%d: %v`, entryID, err)
-		return
+// EntryShareCode returns the share code of the provided entry, creating a new
+// code when the entry has never been shared or when its previous link expired.
+// The expiration is relative to the database clock; a zero duration means the
+// link never expires.
+//
+// The code is rotated and the expiration is refreshed in a single statement so
+// that concurrent share requests for the same entry converge on one code
+// instead of overwriting each other.
+func (s *Storage) EntryShareCode(userID int64, entryID int64, expiration time.Duration) (shareCode string, err error) {
+	if expiration < 0 {
+		expiration = 0
 	}
 
-	if shareCode == "" {
-		shareCode = crypto.GenerateRandomStringHex(20)
-
-		query = `UPDATE entries SET share_code = $1 WHERE user_id=$2 AND id=$3`
-		_, err = s.db.Exec(query, shareCode, userID, entryID)
-		if err != nil {
-			err = fmt.Errorf(`store: unable to set share code for entry #%d: %v`, entryID, err)
-			return
-		}
+	newShareCode := crypto.GenerateRandomStringHex(20)
+	query := `
+		UPDATE entries
+		SET
+			share_code = CASE
+				WHEN share_code = '' OR (share_expires_at IS NOT NULL AND share_expires_at <= now())
+					THEN $1
+				ELSE share_code
+			END,
+			share_expires_at = CASE
+				WHEN $2::bigint = 0 THEN NULL
+				ELSE now() + make_interval(secs => $2::double precision)
+			END
+		WHERE user_id=$3 AND id=$4
+		RETURNING share_code
+	`
+	err = s.db.QueryRow(query, newShareCode, int64(expiration/time.Second), userID, entryID).Scan(&shareCode)
+	if err != nil {
+		err = fmt.Errorf(`store: unable to set share code for entry #%d: %v`, entryID, err)
+		return
 	}
 
 	return
 }
 
-// UnshareEntry removes the share code for the given entry.
+// UnshareEntry removes the share code for the given entry. The empty code is
+// visible to the very next lookup, so the old link stops working immediately.
 func (s *Storage) UnshareEntry(userID int64, entryID int64) (err error) {
-	query := `UPDATE entries SET share_code='' WHERE user_id=$1 AND id=$2`
+	query := `UPDATE entries SET share_code='', share_expires_at=NULL WHERE user_id=$1 AND id=$2`
 	_, err = s.db.Exec(query, userID, entryID)
 	if err != nil {
 		err = fmt.Errorf(`store: unable to remove share code for entry #%d: %v`, entryID, err)

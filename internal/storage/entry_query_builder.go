@@ -174,16 +174,21 @@ func (e *EntryQueryBuilder) WithoutStatus(status string) *EntryQueryBuilder {
 	return e
 }
 
-// WithShareCode set the entry share code.
+// WithShareCode sets the entry share code and only matches links that are
+// still valid. Validity is evaluated by PostgreSQL's clock so that all
+// application instances agree on the expiration boundary.
 func (e *EntryQueryBuilder) WithShareCode(shareCode string) *EntryQueryBuilder {
-	e.conditions = append(e.conditions, "e.share_code = $"+strconv.Itoa(len(e.args)+1))
+	e.conditions = append(e.conditions, fmt.Sprintf(
+		"e.share_code = $%d AND (e.share_expires_at IS NULL OR e.share_expires_at > now())",
+		len(e.args)+1,
+	))
 	e.args = append(e.args, shareCode)
 	return e
 }
 
-// WithShareCodeNotEmpty adds a filter for non-empty share code.
+// WithShareCodeNotEmpty adds a filter for non-empty and non-expired share codes.
 func (e *EntryQueryBuilder) WithShareCodeNotEmpty() *EntryQueryBuilder {
-	e.conditions = append(e.conditions, "e.share_code <> ''")
+	e.conditions = append(e.conditions, "e.share_code <> '' AND (e.share_expires_at IS NULL OR e.share_expires_at > now())")
 	return e
 }
 
@@ -312,7 +317,7 @@ func (e *EntryQueryBuilder) fetchEntries(withCount bool) (model.Entries, int, er
 			e.url,
 			e.comments_url,
 			e.author,
-			e.share_code,
+			CASE WHEN e.share_expires_at IS NULL OR e.share_expires_at > now() THEN e.share_code ELSE '' END AS share_code,
 			` + e.contentColumn() + `,
 			e.status,
 			e.starred,

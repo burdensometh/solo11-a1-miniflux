@@ -1590,4 +1590,10 @@ var migrations = [...]func(tx *sql.Tx) error{
 		_, err = tx.Exec(sql)
 		return err
 	},
+	func(tx *sql.Tx) (err error) {
+		// NULL means the share link never expires. Existing links created
+		// before this migration keep their permanent-lifetime semantics.
+		_, err = tx.Exec(`ALTER TABLE entries ADD COLUMN share_expires_at timestamp with time zone;`)
+		return err
+	},
 }
