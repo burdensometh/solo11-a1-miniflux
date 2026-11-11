@@ -126,6 +126,9 @@ func (r *ResponseHandler) IsRedirect() bool {
 
 func (r *ResponseHandler) Close() {
 	if r.httpResponse != nil && r.httpResponse.Body != nil {
+		// Drain a bounded amount of any unread body so the transport can
+		// return the connection to the pool instead of closing it.
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.httpResponse.Body, 1<<20))
 		r.httpResponse.Body.Close()
 	}
 }

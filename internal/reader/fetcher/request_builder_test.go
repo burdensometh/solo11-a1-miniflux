@@ -196,6 +196,7 @@ func TestRequestBuilder_WithCookieOnlySentToSameSite(t *testing.T) {
 		{"http://feeds.example.org/rss.xml", "session=secret"},
 		{"http://www.example.org/article.html", "session=secret"},
 		{"http://example.org/favicon.ico", "session=secret"},
+		{"http://www.bücher.example/favicon.ico", ""},
 		{"http://example.net/article.html", ""},
 		{"http://feeds.example.org.example.net/rss.xml", ""},
 		{"http://cdn.example.com/icon.png", ""},
@@ -266,42 +267,6 @@ func TestRequestBuilder_WithCookieNotForwardedOnRedirectToAnotherSite(t *testing
 
 	if request := <-receivedRequests; request.host != "example.net" || request.cookie != "" {
 		t.Errorf("Expected no Cookie to be forwarded to example.net, got %q for %q", request.cookie, request.host)
-	}
-}
-
-func TestIsSameSite(t *testing.T) {
-	tests := []struct {
-		host     string
-		siteHost string
-		expected bool
-	}{
-		{"example.org", "example.org", true},
-		{"www.example.org", "example.org", true},
-		{"example.org", "www.example.org", true},
-		{"www.example.org", "feeds.example.org", true},
-		{"WWW.Example.ORG", "feeds.example.org", true},
-		{"news.example.co.uk", "www.example.co.uk", true},
-		{"xn--bcher-kva.example", "www.bücher.example", true},
-		{"example.net", "example.org", false},
-		{"notexample.org", "example.org", false},
-		{"example.org.example.net", "example.org", false},
-		{"attacker.co.uk", "example.co.uk", false},
-		{"attacker.CO.UK", "www.example.CO.UK", false},
-		{"bob.github.io", "alice.github.io", false},
-		{"127.0.0.1", "127.0.0.1", true},
-		{"10.0.0.1", "192.168.0.1", false},
-		{"::1", "::1", true},
-		{"localhost", "localhost", true},
-		{"intranet", "localhost", false},
-		{"", "example.org", false},
-		{"example.org", "", false},
-		{"", "", false},
-	}
-
-	for _, tt := range tests {
-		if got := isSameSite(tt.host, tt.siteHost); got != tt.expected {
-			t.Errorf("isSameSite(%q, %q) = %v, expected %v", tt.host, tt.siteHost, got, tt.expected)
-		}
 	}
 }
 
@@ -481,10 +446,12 @@ func TestRequestBuilder_WithCompression(t *testing.T) {
 	defer resp.Body.Close()
 }
 
-func TestRequestBuilder_ConnectionCloseHeader(t *testing.T) {
+func TestRequestBuilder_KeepAliveEnabled(t *testing.T) {
+	// Connections are pooled and reused across requests, so requests must not
+	// ask the server to close the connection.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Connection") != "close" {
-			t.Errorf("Expected Connection to be 'close', got '%s'", r.Header.Get("Connection"))
+		if r.Header.Get("Connection") == "close" {
+			t.Errorf("Expected no Connection: close header, got '%s'", r.Header.Get("Connection"))
 		}
 		w.WriteHeader(http.StatusOK)
 	}))

@@ -12,7 +12,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -49,8 +51,7 @@ const (
 
 type RequestBuilder struct {
 	headers            http.Header
-	cookie             string
-	cookieSiteHost     string
+	jar                *cookiejar.Jar
 	clientProxyURL     *url.URL
 	clientTimeout      time.Duration
 	useClientProxy     bool
@@ -63,15 +64,38 @@ type RequestBuilder struct {
 }
 
 func NewRequestBuilder() *RequestBuilder {
+	// The jar is scoped to the public suffix list so that a server cannot set
+	// cookies for an entire public suffix (for example "co.uk").
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: cookieJarPublicSuffixList{}})
+	if err != nil {
+		// cookiejar.New only fails on a nil option list; it cannot happen here.
+		panic(fmt.Sprintf("fetcher: unable to create cookie jar: %v", err))
+	}
+
 	return &RequestBuilder{
 		headers:       make(http.Header),
+		jar:           jar,
 		clientTimeout: defaultHTTPClientTimeout,
 	}
 }
 
+// cookieJarPublicSuffixList adapts golang.org/x/net/publicsuffix to the
+// cookiejar.PublicSuffixList interface.
+type cookieJarPublicSuffixList struct{}
+
+func (cookieJarPublicSuffixList) PublicSuffix(domain string) string {
+	suffix, _ := publicsuffix.PublicSuffix(domain)
+	return suffix
+}
+
+func (cookieJarPublicSuffixList) String() string {
+	return "miniflux fetcher (golang.org/x/net/publicsuffix)"
+}
+
 // Clone returns an independent copy of the builder. Mutating the copy (for
 // example to disable redirects for a single request) leaves the original
-// untouched.
+// untouched. The clone shares the cookie jar of the original: both belong to
+// the same subscription session.
 func (r *RequestBuilder) Clone() *RequestBuilder {
 	clone := *r
 	clone.headers = r.headers.Clone()
@@ -106,17 +130,46 @@ func (r *RequestBuilder) WithUserAgent(userAgent string, defaultUserAgent string
 	return r
 }
 
-// WithCookie sets the Cookie header for requests to the website of siteURL,
-// that is its host or any host sharing its registrable domain. A cookie
-// configured for a feed must not be sent to the other websites it links to.
+// WithCookie seeds the session cookie jar with the cookies of the website of
+// siteURL, that is its host or any host sharing its registrable domain. A
+// cookie configured for a feed must not be sent to the other websites it
+// links to.
+//
+// The cookie value must be a valid Cookie header ("name=value; ...") as
+// defined by RFC 6265; pairs that are not valid cookies are ignored. Seeded
+// cookies live in the builder's own jar, which is never shared across
+// subscriptions: two feeds of the same website with different cookies cannot
+// see each other's cookies, even though their requests may reuse the same
+// pooled connections. Cookies set by the server during a redirect chain are
+// stored in the same jar and sent on the next hops.
 func (r *RequestBuilder) WithCookie(cookie, siteURL string) *RequestBuilder {
-	if cookie != "" {
-		r.cookie = cookie
-		r.cookieSiteHost = ""
-		if parsedSiteURL, err := url.Parse(siteURL); err == nil {
-			r.cookieSiteHost = parsedSiteURL.Hostname()
+	if cookie == "" {
+		return r
+	}
+
+	parsedSiteURL, err := url.Parse(siteURL)
+	if err != nil || parsedSiteURL.Hostname() == "" {
+		return r
+	}
+
+	// The jar only accepts http(s) seed URLs. The scheme does not matter
+	// otherwise: seeded cookies are not marked Secure, so they are sent over
+	// both HTTP and HTTPS, like a static Cookie header would be.
+	seedURL := &url.URL{Scheme: "https", Host: parsedSiteURL.Host, Path: "/"}
+
+	cookies := parseCookieHeaderValue(cookie)
+
+	// Scope the cookies to the registrable domain (eTLD+1) of the website, so
+	// that "feeds.example.org" and "www.example.org" share them while
+	// "example.net" never sees them. Hosts without a registrable domain (IP
+	// addresses, "localhost") get host-only cookies instead.
+	if domain, err := registrableDomain(parsedSiteURL.Hostname()); err == nil {
+		for _, c := range cookies {
+			c.Domain = domain
 		}
 	}
+
+	r.jar.SetCookies(seedURL, cookies)
 	return r
 }
 
@@ -192,6 +245,107 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 		proxySource = proxySourceRotator
 	}
 
+	key := transportKey{
+		proxySource:           proxySource,
+		ignoreTLSErrors:       r.ignoreTLSErrors,
+		disableHTTP2:          r.disableHTTP2,
+		allowPrivateNetworks:  config.Opts == nil || config.Opts.FetcherAllowPrivateNetworks(),
+		allowPrivateFeedProxy: config.Opts != nil && config.Opts.FetcherAllowPrivateFeedProxy(),
+		proxyEnvironment:      proxyEnvironmentFingerprint(),
+	}
+	if clientProxyURL != nil {
+		key.proxyURL = clientProxyURL.String()
+	}
+
+	var clientProxyURLRedacted string
+	if clientProxyURL != nil {
+		clientProxyURLRedacted = clientProxyURL.Redacted()
+	}
+
+	client := &http.Client{
+		Transport: sharedTransport(key),
+		Timeout:   r.clientTimeout,
+		Jar:       r.jar,
+	}
+
+	if r.withoutRedirects {
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header = r.headers.Clone()
+
+	if r.disableCompression {
+		req.Header.Set("Accept-Encoding", "identity")
+	} else {
+		req.Header.Set("Accept-Encoding", "br,gzip")
+	}
+
+	// Set default Accept header if not already set.
+	// Note that for the media proxy requests, we need to forward the browser Accept header.
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", defaultAcceptHeader)
+	}
+
+	slog.Debug("Making outgoing request", slog.Group("request",
+		slog.String("method", req.Method),
+		slog.String("url", req.URL.String()),
+		slog.Any("headers", req.Header),
+		slog.Bool("without_redirects", r.withoutRedirects),
+		slog.Bool("use_app_client_proxy", r.useClientProxy),
+		slog.String("client_proxy_url", clientProxyURLRedacted),
+		slog.Bool("ignore_tls_errors", r.ignoreTLSErrors),
+		slog.Bool("disable_http2", r.disableHTTP2),
+	))
+
+	return client.Do(req)
+}
+
+// transportKey identifies a connection pool. Two requests share a pool only
+// when their network path is identical: same proxy, same TLS and protocol
+// options, same private-network policy, and same proxy environment. Session
+// state (cookies) is never part of the key: it lives in the per-builder
+// cookie jar, so subscriptions sharing a pool cannot see each other's
+// credentials.
+type transportKey struct {
+	proxyURL              string
+	proxySource           proxySource
+	ignoreTLSErrors       bool
+	disableHTTP2          bool
+	allowPrivateNetworks  bool
+	allowPrivateFeedProxy bool
+	proxyEnvironment      string
+}
+
+// sharedTransports pools the transports of all requests with the same
+// transportKey. The number of pools is bounded by the number of distinct
+// network configurations, not by the number of subscriptions or websites:
+// http.Transport already maintains per-host connection pools internally.
+var sharedTransports sync.Map // map[transportKey]*http.Transport
+
+func sharedTransport(key transportKey) *http.Transport {
+	if transport, ok := sharedTransports.Load(key); ok {
+		return transport.(*http.Transport)
+	}
+
+	transport := newTransport(key)
+	actual, _ := sharedTransports.LoadOrStore(key, transport)
+	return actual.(*http.Transport)
+}
+
+func newTransport(key transportKey) *http.Transport {
+	var clientProxyURL *url.URL
+	if key.proxyURL != "" {
+		// The URL was already validated by ExecuteRequest.
+		clientProxyURL, _ = url.Parse(key.proxyURL)
+	}
+
 	directDialer := &net.Dialer{
 		Timeout:   10 * time.Second, // Default is 30s.
 		KeepAlive: 15 * time.Second, // Default is 30s.
@@ -204,12 +358,12 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 
 	// The proxy is resolved with httpproxy rather than http.ProxyFromEnvironment,
 	// which caches the environment on first use. Routing and the trusted hop below
-	// are then decided by the same call.
+	// are then decided by the same call. The environment is part of the transport
+	// key, so a pooled transport never sees a stale proxy configuration.
 	envProxyFunc := httpproxy.FromEnvironment().ProxyFunc()
 
 	trustedProxies := &trustedProxyAddresses{}
-	allowPrivateFeedProxy := config.Opts != nil && config.Opts.FetcherAllowPrivateFeedProxy()
-	if proxySource != proxySourceFeed || allowPrivateFeedProxy {
+	if key.proxySource != proxySourceFeed || key.allowPrivateFeedProxy {
 		trustedProxies.add(clientProxyURL)
 	}
 
@@ -217,8 +371,7 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 	// which fires after DNS resolution but before the TCP connection is made.
 	// This eliminates TOCTOU / DNS-rebinding vulnerabilities: the resolved IP
 	// that is checked is exactly the IP that will be connected to.
-	allowPrivateNetworks := config.Opts == nil || config.Opts.FetcherAllowPrivateNetworks()
-	if !allowPrivateNetworks {
+	if !key.allowPrivateNetworks {
 		directDialer.Control = func(network, address string, c syscall.RawConn) error {
 			host, _, err := net.SplitHostPort(address)
 			if err != nil {
@@ -250,7 +403,7 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 	}
 
 	transport.DialContext = directDialer.DialContext
-	if !allowPrivateNetworks {
+	if !key.allowPrivateNetworks {
 		// Explicitly configured proxies are a trusted hop. Keep the private-network
 		// check for direct requests and redirects, but allow the connection to the proxy itself.
 		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -262,7 +415,7 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 		}
 	}
 
-	if r.ignoreTLSErrors {
+	if key.ignoreTLSErrors {
 		//  Add insecure ciphers if we are ignoring TLS errors. This allows to connect to badly configured servers anyway
 		ciphers := slices.Concat(tls.CipherSuites(), tls.InsecureCipherSuites())
 		cipherSuites := make([]uint16, 0, len(ciphers))
@@ -275,7 +428,7 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 		}
 	}
 
-	if r.disableHTTP2 {
+	if key.disableHTTP2 {
 		transport.ForceAttemptHTTP2 = false
 
 		// https://pkg.go.dev/net/http#hdr-HTTP_2
@@ -283,86 +436,41 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	}
 
-	var clientProxyURLRedacted string
 	if clientProxyURL != nil {
 		transport.Proxy = http.ProxyURL(clientProxyURL)
-		clientProxyURLRedacted = clientProxyURL.Redacted()
 	}
 
-	client := &http.Client{
-		Timeout: r.clientTimeout,
-	}
-
-	if r.withoutRedirects {
-		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-	}
-
-	client.Transport = transport
-
-	req, err := http.NewRequest("GET", requestURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header = r.headers.Clone()
-	if r.cookie != "" && isSameSite(req.URL.Hostname(), r.cookieSiteHost) {
-		req.Header.Set("Cookie", r.cookie)
-	}
-
-	if r.disableCompression {
-		req.Header.Set("Accept-Encoding", "identity")
-	} else {
-		req.Header.Set("Accept-Encoding", "br,gzip")
-	}
-
-	// Set default Accept header if not already set.
-	// Note that for the media proxy requests, we need to forward the browser Accept header.
-	if req.Header.Get("Accept") == "" {
-		req.Header.Set("Accept", defaultAcceptHeader)
-	}
-
-	req.Header.Set("Connection", "close")
-
-	slog.Debug("Making outgoing request", slog.Group("request",
-		slog.String("method", req.Method),
-		slog.String("url", req.URL.String()),
-		slog.Any("headers", req.Header),
-		slog.Bool("without_redirects", r.withoutRedirects),
-		slog.Bool("use_app_client_proxy", r.useClientProxy),
-		slog.String("client_proxy_url", clientProxyURLRedacted),
-		slog.Bool("ignore_tls_errors", r.ignoreTLSErrors),
-		slog.Bool("disable_http2", r.disableHTTP2),
-	))
-
-	return client.Do(req)
+	return transport
 }
 
-// isSameSite reports whether host and siteHost are the same host, or share the
-// same registrable domain, like "www.example.org" and "feeds.example.org".
-// Hosts under a public suffix, like "alice.github.io" and "bob.github.io", are
-// different websites.
-func isSameSite(host, siteHost string) bool {
-	if host == "" || siteHost == "" {
-		return false
+// proxyEnvironmentFingerprint captures the environment variables consulted by
+// httpproxy.FromEnvironment, so that a change of environment (for example in
+// tests) never reuses a transport built with different proxy settings.
+func proxyEnvironmentFingerprint() string {
+	variables := []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy", "REQUEST_METHOD"}
+	values := make([]string, 0, len(variables))
+	for _, name := range variables {
+		values = append(values, os.Getenv(name))
 	}
 
-	if host == siteHost {
-		return true
+	return strings.Join(values, "\x00")
+}
+
+// parseCookieHeaderValue parses a Cookie header value ("name=value; ...")
+// into a list of cookies. Pairs that are not valid "name=value" cookies are
+// ignored.
+func parseCookieHeaderValue(header string) []*http.Cookie {
+	var cookies []*http.Cookie
+	for _, part := range strings.Split(header, ";") {
+		name, value, found := strings.Cut(strings.TrimSpace(part), "=")
+		if name = strings.TrimSpace(name); !found || name == "" {
+			continue
+		}
+
+		cookies = append(cookies, &http.Cookie{Name: name, Value: strings.TrimSpace(value)})
 	}
 
-	domain, err := registrableDomain(host)
-	if err != nil {
-		return false
-	}
-
-	siteDomain, err := registrableDomain(siteHost)
-	if err != nil {
-		return false
-	}
-
-	return domain == siteDomain
+	return cookies
 }
 
 // registrableDomain returns the eTLD+1 of host. The public suffix list only
