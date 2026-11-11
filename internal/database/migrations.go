@@ -10,7 +10,10 @@ import (
 	"miniflux.app/v2/internal/crypto"
 )
 
-var schemaVersion = len(migrations)
+// schemaVersion is the total number of migrations, including the
+// out-of-transaction concurrent index migrations declared in
+// concurrent_index_migrations.go.
+var schemaVersion = len(migrations) + len(concurrentIndexMigrations)
 
 // Order is important. Add new migrations at the end of the list.
 var migrations = [...]func(tx *sql.Tx) error{
