@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"time"
 
@@ -18,19 +20,55 @@ import (
 const (
 	NewEntriesEventType = "new_entries"
 	SaveEntryEventType  = "save_entry"
+
+	// DeliveryIDHeader is the HTTP header carrying the unique identifier of a
+	// webhook delivery. The same identifier is also present in the request body
+	// and stays unchanged across retries, so receivers can deduplicate
+	// deliveries that arrive more than once.
+	DeliveryIDHeader = "X-Miniflux-Delivery-ID"
+
+	// defaultMaxAttempts is the total number of HTTP attempts performed per
+	// delivery (the initial attempt plus retries).
+	defaultMaxAttempts = 4
+
+	// defaultInitialBackoff is the base delay used for the exponential backoff
+	// before the first retry. Full jitter is applied on top of it.
+	defaultInitialBackoff = time.Second
+
+	// defaultMaxBackoff caps the backoff delay between two attempts.
+	defaultMaxBackoff = 30 * time.Second
 )
 
+// Client sends webhook events to a configured endpoint with retries and
+// exponential backoff.
 type Client struct {
 	webhookURL    string
 	webhookSecret string
+
+	// maxAttempts is the total number of attempts (initial attempt + retries).
+	maxAttempts int
+	// initialBackoff is the base delay before the first retry.
+	initialBackoff time.Duration
+	// maxBackoff caps the delay between two attempts.
+	maxBackoff time.Duration
+	// sleep pauses for the given duration between attempts. It is overridable
+	// in tests to avoid real waiting.
+	sleep func(time.Duration)
 }
 
 func NewClient(webhookURL, webhookSecret string) *Client {
-	return &Client{webhookURL, webhookSecret}
+	return &Client{
+		webhookURL:     webhookURL,
+		webhookSecret:  webhookSecret,
+		maxAttempts:    defaultMaxAttempts,
+		initialBackoff: defaultInitialBackoff,
+		maxBackoff:     defaultMaxBackoff,
+		sleep:          time.Sleep,
+	}
 }
 
 func (c *Client) SendSaveEntryWebhookEvent(entry *model.Entry) error {
-	return c.makeRequest(SaveEntryEventType, &WebhookSaveEntryEvent{
+	event := &WebhookSaveEntryEvent{
 		EventType: SaveEntryEventType,
 		Entry: &WebhookEntry{
 			ID:          entry.ID,
@@ -62,7 +100,8 @@ func (c *Client) SendSaveEntryWebhookEvent(entry *model.Entry) error {
 				CheckedAt:  entry.Feed.CheckedAt,
 			},
 		},
-	})
+	}
+	return c.makeRequest(SaveEntryEventType, event)
 }
 
 func (c *Client) SendNewEntriesWebhookEvent(feed *model.Feed, entries model.Entries) error {
@@ -93,7 +132,7 @@ func (c *Client) SendNewEntriesWebhookEvent(feed *model.Feed, entries model.Entr
 			Tags:        entry.Tags,
 		})
 	}
-	return c.makeRequest(NewEntriesEventType, &WebhookNewEntriesEvent{
+	event := &WebhookNewEntriesEvent{
 		EventType: NewEntriesEventType,
 		Feed: &WebhookFeed{
 			ID:         feed.ID,
@@ -106,35 +145,112 @@ func (c *Client) SendNewEntriesWebhookEvent(feed *model.Feed, entries model.Entr
 			CheckedAt:  feed.CheckedAt,
 		},
 		Entries: webhookEntries,
-	})
+	}
+	return c.makeRequest(NewEntriesEventType, event)
 }
 
-func (c *Client) makeRequest(eventType string, payload any) error {
+// makeRequest delivers a single webhook event. A delivery ID is generated once
+// and reused on every attempt so the receiver can recognize retries of the same
+// delivery and deduplicate them.
+func (c *Client) makeRequest(eventType string, event deliveryEvent) error {
 	if c.webhookURL == "" {
 		return errors.New(`webhook: missing webhook URL`)
 	}
 
-	requestBody, err := json.Marshal(payload)
+	deliveryID := crypto.GenerateUUID()
+	event.setDeliveryID(deliveryID)
+
+	requestBody, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("webhook: unable to encode request body: %v", err)
+		return fmt.Errorf("webhook: unable to encode request body: %w", err)
 	}
 
+	maxAttempts := c.maxAttempts
+	if maxAttempts < 1 {
+		maxAttempts = defaultMaxAttempts
+	}
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		retryable, err := c.sendOnce(eventType, deliveryID, requestBody)
+		if err == nil {
+			return nil
+		}
+
+		if !retryable || attempt == maxAttempts {
+			return err
+		}
+
+		delay := c.backoffDelay(attempt)
+		slog.Warn("Webhook delivery failed, retrying",
+			slog.String("webhook_url", c.webhookURL),
+			slog.String("event_type", eventType),
+			slog.String("delivery_id", deliveryID),
+			slog.Int("attempt", attempt),
+			slog.Int("max_attempts", maxAttempts),
+			slog.Duration("retry_delay", delay),
+			slog.Any("error", err),
+		)
+		c.sleep(delay)
+	}
+
+	return nil
+}
+
+// sendOnce performs a single HTTP attempt and reports whether a failed attempt
+// is eligible for a retry. The request body is reused verbatim across retries,
+// which keeps the signature and the delivery ID identical.
+func (c *Client) sendOnce(eventType, deliveryID string, requestBody []byte) (retryable bool, err error) {
 	response, err := client.NewRequestBuilder(c.webhookURL).
 		WithMethod(http.MethodPost).
 		WithJSONBody(requestBody).
 		WithHeader("X-Miniflux-Signature", crypto.GenerateSHA256Hmac(c.webhookSecret, requestBody)).
 		WithHeader("X-Miniflux-Event-Type", eventType).
+		WithHeader(DeliveryIDHeader, deliveryID).
 		Do()
 	if err != nil {
-		return fmt.Errorf("webhook: %w", err)
+		// Transport-level failures (connection refused, timeout, DNS error,
+		// ...) are transient: the request may never have reached the receiver.
+		return true, fmt.Errorf("webhook: %w", err)
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode >= 400 {
-		return fmt.Errorf("webhook: incorrect response status code %d for url %s", response.StatusCode, c.webhookURL)
+	if response.StatusCode == http.StatusBadGateway {
+		// A 502 means the whole batch was not processed and must be redelivered.
+		return true, fmt.Errorf("webhook: incorrect response status code %d for url %s", response.StatusCode, c.webhookURL)
 	}
 
-	return nil
+	if response.StatusCode >= 400 {
+		// Client errors and other permanent server errors are not retried.
+		return false, fmt.Errorf("webhook: incorrect response status code %d for url %s", response.StatusCode, c.webhookURL)
+	}
+
+	return false, nil
+}
+
+// backoffDelay computes the delay before the retry following the given attempt
+// number (1-based). It uses exponential backoff with full jitter to spread
+// retries when multiple deliveries fail at the same time.
+func (c *Client) backoffDelay(attempt int) time.Duration {
+	initialBackoff := c.initialBackoff
+	if initialBackoff <= 0 {
+		initialBackoff = defaultInitialBackoff
+	}
+	maxBackoff := c.maxBackoff
+	if maxBackoff <= 0 {
+		maxBackoff = defaultMaxBackoff
+	}
+
+	upper := initialBackoff << (attempt - 1)
+	if upper <= 0 || upper > maxBackoff {
+		upper = maxBackoff
+	}
+	return time.Duration(rand.Int64N(int64(upper) + 1))
+}
+
+// deliveryEvent is implemented by every webhook event payload so the client can
+// attach the delivery ID before sending.
+type deliveryEvent interface {
+	setDeliveryID(deliveryID string)
 }
 
 type WebhookFeed struct {
@@ -176,12 +292,22 @@ type WebhookEntry struct {
 }
 
 type WebhookNewEntriesEvent struct {
-	EventType string          `json:"event_type"`
-	Feed      *WebhookFeed    `json:"feed"`
-	Entries   []*WebhookEntry `json:"entries"`
+	EventType  string          `json:"event_type"`
+	DeliveryID string          `json:"delivery_id"`
+	Feed       *WebhookFeed    `json:"feed"`
+	Entries    []*WebhookEntry `json:"entries"`
+}
+
+func (e *WebhookNewEntriesEvent) setDeliveryID(deliveryID string) {
+	e.DeliveryID = deliveryID
 }
 
 type WebhookSaveEntryEvent struct {
-	EventType string        `json:"event_type"`
-	Entry     *WebhookEntry `json:"entry"`
+	EventType  string        `json:"event_type"`
+	DeliveryID string        `json:"delivery_id"`
+	Entry      *WebhookEntry `json:"entry"`
+}
+
+func (e *WebhookSaveEntryEvent) setDeliveryID(deliveryID string) {
+	e.DeliveryID = deliveryID
 }
