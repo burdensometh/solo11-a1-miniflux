@@ -27,6 +27,15 @@ func Migrate(db *sql.DB) error {
 			return fmt.Errorf("[Migration v%d] %v", newVersion, err)
 		}
 
+		// Schema migrations (index builds on large tables, backfills, ...) may
+		// legitimately run longer than the application-wide statement_timeout
+		// configured on the pool. Lift the limits for the migration transaction
+		// only; regular application queries remain bounded.
+		if _, err := tx.Exec(`SET LOCAL statement_timeout = 0; SET LOCAL lock_timeout = 0;`); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("[Migration v%d] unable to disable statement timeouts: %v", newVersion, err)
+		}
+
 		if err := migrations[version](tx); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("[Migration v%d] %v", newVersion, err)

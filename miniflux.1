@@ -229,6 +229,19 @@ Maximum amount of time in minutes a connection may be reused.
 .IP
 Default is 5 minutes.
 .TP
+.B DATABASE_QUERY_TIMEOUT
+Maximum amount of time in seconds a single database query may run before being aborted.
+This prevents a query stuck on a lock or a stalled connection from blocking a
+background worker indefinitely.
+.IP
+Default is 30 seconds.
+.TP
+.B DATABASE_LOCK_TIMEOUT
+Maximum amount of time in seconds a database query waits to acquire a row lock
+before being aborted instead of blocking forever.
+.IP
+Default is 10 seconds.
+.TP
 .B DATABASE_MAX_CONNS
 Maximum number of database connections.
 .IP

@@ -159,6 +159,8 @@ func Parse() {
 		config.Opts.DatabaseMinConns(),
 		config.Opts.DatabaseMaxConns(),
 		config.Opts.DatabaseConnectionLifetime(),
+		config.Opts.DatabaseQueryTimeout(),
+		config.Opts.DatabaseLockTimeout(),
 	)
 	if err != nil {
 		printfAndExit("unable to connect to database: %v", err)

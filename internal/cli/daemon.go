@@ -32,8 +32,9 @@ func startDaemon(store *storage.Storage) {
 
 	pool := worker.NewPool(store, config.Opts.WorkerPoolSize())
 
+	var stopScheduler func()
 	if config.Opts.HasSchedulerService() && !config.Opts.HasMaintenanceMode() {
-		runScheduler(store, pool)
+		stopScheduler = runScheduler(store, pool)
 	}
 
 	var httpServers []*http.Server
@@ -101,6 +102,9 @@ func startDaemon(store *storage.Storage) {
 			}
 
 			slog.Debug("Shutting down worker pool...")
+			if stopScheduler != nil {
+				stopScheduler()
+			}
 			pool.Shutdown()
 			slog.Debug("Worker pool shut down.")
 

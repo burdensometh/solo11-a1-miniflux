@@ -167,6 +167,22 @@ func NewConfigOptions() *configOptions {
 					return validateGreaterThan(rawValue, 0)
 				},
 			},
+			"DATABASE_QUERY_TIMEOUT": {
+				parsedDuration: 30 * time.Second,
+				rawValue:       "30",
+				valueType:      secondType,
+				validator: func(rawValue string) error {
+					return validateGreaterThan(rawValue, 0)
+				},
+			},
+			"DATABASE_LOCK_TIMEOUT": {
+				parsedDuration: 10 * time.Second,
+				rawValue:       "10",
+				valueType:      secondType,
+				validator: func(rawValue string) error {
+					return validateGreaterThan(rawValue, 0)
+				},
+			},
 			"DATABASE_MAX_CONNS": {
 				parsedIntValue: 20,
 				rawValue:       "20",
@@ -706,6 +722,14 @@ func (c *configOptions) CreateAdmin() bool {
 
 func (c *configOptions) DatabaseConnectionLifetime() time.Duration {
 	return c.options["DATABASE_CONNECTION_LIFETIME"].parsedDuration
+}
+
+func (c *configOptions) DatabaseQueryTimeout() time.Duration {
+	return c.options["DATABASE_QUERY_TIMEOUT"].parsedDuration
+}
+
+func (c *configOptions) DatabaseLockTimeout() time.Duration {
+	return c.options["DATABASE_LOCK_TIMEOUT"].parsedDuration
 }
 
 func (c *configOptions) DatabaseMaxConns() int {

@@ -12,8 +12,11 @@ import (
 	"miniflux.app/v2/internal/worker"
 )
 
-func runScheduler(store *storage.Storage, pool *worker.Pool) {
+func runScheduler(store *storage.Storage, pool *worker.Pool) (stop func()) {
 	slog.Debug(`Starting background scheduler...`)
+
+	stopFeedScheduler := make(chan struct{})
+	stopCleanupScheduler := make(chan struct{})
 
 	go feedScheduler(
 		store,
@@ -22,16 +25,36 @@ func runScheduler(store *storage.Storage, pool *worker.Pool) {
 		config.Opts.BatchSize(),
 		config.Opts.PollingParsingErrorLimit(),
 		config.Opts.PollingLimitPerHost(),
+		stopFeedScheduler,
 	)
 
 	go cleanupScheduler(
 		store,
 		config.Opts.CleanupFrequency(),
+		stopCleanupScheduler,
 	)
+
+	return func() {
+		close(stopFeedScheduler)
+		close(stopCleanupScheduler)
+	}
 }
 
-func feedScheduler(store *storage.Storage, pool *worker.Pool, frequency time.Duration, batchSize, errorLimit, limitPerHost int) {
-	for range time.Tick(frequency) {
+func feedScheduler(store *storage.Storage, pool *worker.Pool, frequency time.Duration, batchSize, errorLimit, limitPerHost int, stop <-chan struct{}) {
+	// time.NewTicker is used instead of time.Tick so that the ticker can be
+	// stopped and its resources released. time.Tick leaks the underlying ticker
+	// because there is no way to stop it.
+	ticker := time.NewTicker(frequency)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stop:
+			slog.Debug("Stopping feed scheduler")
+			return
+		case <-ticker.C:
+		}
+
 		// Generate a batch of feeds for any user that has feeds to refresh.
 		jobs, err := store.NewBatchBuilder().
 			WithBatchSize(batchSize).
@@ -43,15 +66,31 @@ func feedScheduler(store *storage.Storage, pool *worker.Pool, frequency time.Dur
 
 		if err != nil {
 			slog.Error("Unable to fetch jobs from database", slog.Any("error", err))
-		} else if len(jobs) > 0 {
+			continue
+		}
+
+		if len(jobs) > 0 {
 			slog.Debug("Feed URLs in this batch", slog.Any("feed_urls", jobs.FeedURLs()))
+			// Push never blocks: if the workers cannot keep up, the surplus
+			// jobs are deferred to the next tick instead of freezing the
+			// scheduler goroutine.
 			pool.Push(jobs)
 		}
 	}
 }
 
-func cleanupScheduler(store *storage.Storage, frequency time.Duration) {
-	for range time.Tick(frequency) {
+func cleanupScheduler(store *storage.Storage, frequency time.Duration, stop <-chan struct{}) {
+	ticker := time.NewTicker(frequency)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stop:
+			slog.Debug("Stopping cleanup scheduler")
+			return
+		case <-ticker.C:
+		}
+
 		runCleanupTasks(store)
 	}
 }

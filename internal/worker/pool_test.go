@@ -27,17 +27,8 @@ func TestPushAfterShutdownDiscardsJobs(t *testing.T) {
 	}
 }
 
-func TestShutdownUnblocksPendingPush(t *testing.T) {
+func TestShutdownDoesNotDeadlockWithoutWorkers(t *testing.T) {
 	pool := NewPool(nil, 0)
-
-	pushed := make(chan struct{})
-	go func() {
-		defer close(pushed)
-		pool.Push(model.JobList{{FeedID: 1}})
-	}()
-
-	// Give Push time to block on the unbuffered queue before shutting down.
-	time.Sleep(10 * time.Millisecond)
 
 	done := make(chan struct{})
 	go func() {
@@ -48,13 +39,60 @@ func TestShutdownUnblocksPendingPush(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("Shutdown deadlocked while a Push was pending")
+		t.Fatal("Shutdown deadlocked")
+	}
+}
+
+// TestPushNeverBlocks guards against the original defect: with an unbuffered
+// queue, Push blocked forever once every worker was stuck, which froze the
+// scheduler goroutine and stopped all subscription refreshes. Push must now
+// reject surplus jobs and return promptly even when nothing drains the queue.
+func TestPushNeverBlocksWhenQueueIsFull(t *testing.T) {
+	// No workers means nothing drains the queue, so it deterministically fills.
+	pool := NewPool(nil, 0)
+	defer pool.Shutdown()
+
+	jobs := make(model.JobList, cap(pool.queue)+10)
+	for i := range jobs {
+		jobs[i] = model.Job{FeedID: int64(i + 1)}
 	}
 
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pool.Push(jobs)
+	}()
+
 	select {
-	case <-pushed:
+	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("Push remained blocked after Shutdown")
+		t.Fatal("Push blocked when the queue was full instead of deferring jobs")
+	}
+}
+
+// TestWorkerRecoversFromPanic ensures a panic raised while running a job is
+// contained and does not kill the worker goroutine.
+func TestWorkerRecoversFromPanic(t *testing.T) {
+	w := &worker{id: 0}
+
+	panicked := false
+	w.safelyRun(model.Job{FeedID: 1, FeedURL: "http://example.invalid/feed.xml"}, func() {
+		panicked = true
+		panic("boom")
+	})
+
+	if !panicked {
+		t.Fatal("Expected the job function to run")
+	}
+
+	// The worker is still usable after the recovered panic.
+	ranAgain := false
+	w.safelyRun(model.Job{FeedID: 2, FeedURL: "http://example.invalid/feed.xml"}, func() {
+		ranAgain = true
+	})
+
+	if !ranAgain {
+		t.Fatal("Expected the worker to keep processing jobs after a panic")
 	}
 }
 

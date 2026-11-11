@@ -1281,6 +1281,38 @@ func TestDatabaseConnectionLifetimeOptionParsing(t *testing.T) {
 	}
 }
 
+func TestDatabaseQueryTimeoutOptionParsing(t *testing.T) {
+	configParser := NewConfigParser()
+
+	if configParser.options.DatabaseQueryTimeout().Seconds() != 30 {
+		t.Fatalf("Expected DATABASE_QUERY_TIMEOUT to be 30 seconds by default")
+	}
+
+	if err := configParser.parseLines([]string{"DATABASE_QUERY_TIMEOUT=45"}); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if configParser.options.DatabaseQueryTimeout().Seconds() != 45 {
+		t.Fatalf("Expected DATABASE_QUERY_TIMEOUT to be 45 seconds")
+	}
+}
+
+func TestDatabaseLockTimeoutOptionParsing(t *testing.T) {
+	configParser := NewConfigParser()
+
+	if configParser.options.DatabaseLockTimeout().Seconds() != 10 {
+		t.Fatalf("Expected DATABASE_LOCK_TIMEOUT to be 10 seconds by default")
+	}
+
+	if err := configParser.parseLines([]string{"DATABASE_LOCK_TIMEOUT=5"}); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if configParser.options.DatabaseLockTimeout().Seconds() != 5 {
+		t.Fatalf("Expected DATABASE_LOCK_TIMEOUT to be 5 seconds")
+	}
+}
+
 func TestForceRefreshIntervalOptionParsing(t *testing.T) {
 	configParser := NewConfigParser()
 

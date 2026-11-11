@@ -43,6 +43,16 @@ func (w *worker) Run(c <-chan model.Job, shutdown <-chan struct{}, wg *sync.Wait
 			slog.String("feed_url", job.FeedURL),
 		)
 
+		// A panic while refreshing a feed must not kill the worker goroutine.
+		// A dead worker permanently reduces the pool capacity; if all workers
+		// panic the queue stops draining and every subscription freezes until
+		// the process is restarted, with no error in the logs explaining why.
+		w.runJob(job)
+	}
+}
+
+func (w *worker) runJob(job model.Job) {
+	w.safelyRun(job, func() {
 		startTime := time.Now()
 		localizedError := feedHandler.RefreshFeed(w.store, job.UserID, job.FeedID, false)
 
@@ -53,5 +63,23 @@ func (w *worker) Run(c <-chan model.Job, shutdown <-chan struct{}, wg *sync.Wait
 			}
 			metric.BackgroundFeedRefreshDuration.WithLabelValues(status).Observe(time.Since(startTime).Seconds())
 		}
-	}
+	})
+}
+
+// safelyRun executes a job's work and contains any panic so the worker loop
+// keeps serving subsequent jobs.
+func (w *worker) safelyRun(job model.Job, work func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("Panic while refreshing feed, worker recovered",
+				slog.Int("worker_id", w.id),
+				slog.Int64("user_id", job.UserID),
+				slog.Int64("feed_id", job.FeedID),
+				slog.String("feed_url", job.FeedURL),
+				slog.Any("panic", r),
+			)
+		}
+	}()
+
+	work()
 }
