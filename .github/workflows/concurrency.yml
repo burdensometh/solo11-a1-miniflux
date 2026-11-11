@@ -1,0 +1,45 @@
+name: Concurrency Tests
+
+# Runs the entry write-path concurrency tests against a real PostgreSQL.
+# These tests are skipped automatically when DATABASE_URL is unset, so the
+# ordinary `make test` job stays dependency-free; this job provisions a
+# database and turns them on explicitly.
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  storage-concurrency:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: miniflux_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run storage concurrency tests with the race detector
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/miniflux_test?sslmode=disable
+        run: make test-concurrency

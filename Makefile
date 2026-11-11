@@ -26,6 +26,7 @@ export PGPASSWORD := postgres
 	clean \
 	add-string \
 	test \
+	test-concurrency \
 	lint \
 	integration-test \
 	clean-integration-test \
@@ -100,6 +101,12 @@ add-string:
 
 test:
 	go test -cover -race -count=1 ./...
+
+# Runs only the entry write-path concurrency tests against a real database.
+# Requires DATABASE_URL; without it the tests skip. Deterministic barriers
+# (not sleeps) line the goroutines up, so the run is fast and cannot flake.
+test-concurrency:
+	DATABASE_URL=$(DATABASE_URL) go test -race -count=20 -run 'TestConcurrentRefresh|TestBarrierDriver' ./internal/storage/
 
 lint:
 	go vet ./...

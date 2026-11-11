@@ -316,6 +316,94 @@ func (s *Storage) GetReadTime(feedID int64, entryHash string) int {
 	return result
 }
 
+// insertEntryIfAbsent atomically inserts an entry that has no row yet, or
+// returns the ID of the existing row. The existence check and the insert run
+// in a single statement, so two concurrent refreshes of the same feed cannot
+// both decide that an entry is missing and race on the unique constraint
+// (feed_id, hash). A tombstoned entry is never re-inserted.
+//
+// It returns (entryID, true, nil) when a new row was inserted, and
+// (entryID, false, nil) when the entry (or a tombstone) already exists.
+func (s *Storage) insertEntryIfAbsent(tx *sql.Tx, entry *model.Entry) (int64, bool, error) {
+	truncatedTitle, truncatedContent := truncateTitleAndContentForTSVectorField(entry.Title, entry.Content)
+	query := `
+		INSERT INTO entries
+			(
+				title,
+				hash,
+				url,
+				comments_url,
+				published_at,
+				content,
+				author,
+				user_id,
+				feed_id,
+				reading_time,
+				changed_at,
+				document_vectors,
+				tags,
+				language
+			)
+		SELECT
+			$1,
+			$2,
+			$3,
+			$4,
+			$5,
+			$6,
+			$7,
+			$8,
+			$9,
+			$10,
+			now(),
+			setweight(to_tsvector($11), 'A') || setweight(to_tsvector($12), 'B'),
+			$13,
+			$14
+		WHERE NOT EXISTS (
+			SELECT 1 FROM entry_tombstones WHERE feed_id=$9 AND hash=$2
+		)
+		ON CONFLICT (feed_id, hash) DO NOTHING
+		RETURNING id
+	`
+
+	var entryID int64
+	err := tx.QueryRow(
+		query,
+		entry.Title,
+		entry.Hash,
+		entry.URL,
+		entry.CommentsURL,
+		entry.Date,
+		entry.Content,
+		entry.Author,
+		entry.UserID,
+		entry.FeedID,
+		entry.ReadingTime,
+		truncatedTitle,
+		truncatedContent,
+		pq.Array(entry.Tags),
+		entry.Language,
+	).Scan(&entryID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Either the entry already exists, or it is tombstoned. Distinguish the
+		// two so the caller can keep the tombstone guarantee intact.
+		existingID, lookupErr := s.getEntryIDByHash(tx, entry.FeedID, entry.Hash)
+		if lookupErr != nil {
+			return 0, false, lookupErr
+		}
+		if existingID == 0 {
+			return 0, false, ErrEntryTombstoned
+		}
+		return existingID, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf(`store: unable to create entry %q (feed #%d): %v`, entry.URL, entry.FeedID, err)
+	}
+
+	entry.ID = entryID
+	return entryID, true, nil
+}
+
 // RefreshFeedEntries updates feed entries while refreshing a feed.
 func (s *Storage) RefreshFeedEntries(userID, feedID int64, entries model.Entries, updateExistingEntries bool) (newEntries model.Entries, err error) {
 	for _, entry := range entries {
@@ -327,33 +415,42 @@ func (s *Storage) RefreshFeedEntries(userID, feedID int64, entries model.Entries
 			return nil, fmt.Errorf(`store: unable to start transaction: %v`, err)
 		}
 
-		entryExists, err := s.entryExists(tx, entry)
-		if err != nil {
+		// Insert atomically instead of doing a separate entryExists check
+		// followed by an insert: those two statements in their own
+		// transactions leave a window in which two concurrent refreshes of the
+		// same feed both see the entry as missing and collide on the
+		// (feed_id, hash) unique constraint, aborting one whole refresh.
+		entryID, inserted, err := s.insertEntryIfAbsent(tx, entry)
+		switch {
+		case errors.Is(err, ErrEntryTombstoned):
+			err = nil
+		case err != nil:
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				return nil, fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
 			}
 			return nil, err
-		}
-
-		if entryExists {
-			if updateExistingEntries {
-				err = s.updateEntry(tx, entry)
+		case inserted:
+			// Enclosures are created inside createEntry; mirror that for the
+			// atomic insert path so attachments are not lost on refresh.
+			for _, enclosure := range entry.Enclosures {
+				enclosure.EntryID = entryID
+				enclosure.UserID = entry.UserID
+				if err := s.createEnclosure(tx, enclosure); err != nil {
+					if rollbackErr := tx.Rollback(); rollbackErr != nil {
+						return nil, fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
+					}
+					return nil, err
+				}
 			}
-		} else {
-			err = s.createEntry(tx, entry)
-			switch {
-			case errors.Is(err, ErrEntryTombstoned):
-				err = nil
-			case err == nil:
-				newEntries = append(newEntries, entry)
+			newEntries = append(newEntries, entry)
+		case updateExistingEntries:
+			entry.ID = entryID
+			if err := s.updateEntry(tx, entry); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					return nil, fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
+				}
+				return nil, err
 			}
-		}
-
-		if err != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				return nil, fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
-			}
-			return nil, err
 		}
 
 		if err := tx.Commit(); err != nil {
