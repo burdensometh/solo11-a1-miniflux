@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"miniflux.app/v2/internal/config"
@@ -32,8 +33,21 @@ func getTranslatedLocalizedError(store *storage.Storage, userID int64, originalF
 	if storeErr != nil {
 		return locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
 	}
-	originalFeed.WithTranslatedErrorMessage(localizedError.Translate(user.Language))
-	store.UpdateFeedError(originalFeed)
+
+	// Rate limiting (429) and temporary unavailability (503) are transient:
+	// record the message and the backoff schedule but do not increment the
+	// parsing error counter, otherwise a host throttling us for a while would
+	// push all its feeds past the error limit and permanently stop polling.
+	switch localizedError.HTTPStatusCode() {
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+		originalFeed.ParsingErrorMsg = localizedError.Translate(user.Language)
+	default:
+		originalFeed.WithTranslatedErrorMessage(localizedError.Translate(user.Language))
+	}
+
+	if storeErr := store.UpdateFeedError(originalFeed); storeErr != nil {
+		return locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
+	}
 	return localizedError
 }
 
@@ -247,12 +261,13 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 	responseHandler := fetcher.NewResponseHandler(requestBuilder.ExecuteRequest(originalFeed.FeedURL))
 	defer responseHandler.Close()
 
-	if responseHandler.IsRateLimited() {
+	if responseHandler.IsRateLimited() || responseHandler.IsServiceUnavailable() {
 		retryDelay := responseHandler.ParseRetryDelay()
 		calculatedNextCheckInterval := originalFeed.ScheduleNextCheck(weeklyEntryCount, retryDelay)
 
-		slog.Warn("Feed is rate limited",
+		slog.Warn("Feed is rate limited or temporarily unavailable",
 			slog.String("feed_url", originalFeed.FeedURL),
+			slog.Int("http_status_code", responseHandler.StatusCode()),
 			slog.Int("retry_delay_in_seconds", int(retryDelay.Seconds())),
 			slog.Int("calculated_next_check_interval_in_minutes", int(calculatedNextCheckInterval.Minutes())),
 			slog.Time("new_next_check_at", originalFeed.NextCheckAt),

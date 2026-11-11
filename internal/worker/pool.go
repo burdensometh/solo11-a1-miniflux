@@ -8,6 +8,7 @@ import (
 
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/storage"
+	"miniflux.app/v2/internal/throttle"
 )
 
 // Pool manages a set of background workers that process feed refresh jobs.
@@ -16,6 +17,7 @@ type Pool struct {
 	shutdown     chan struct{}
 	shutdownOnce sync.Once
 	wg           sync.WaitGroup
+	throttler    *throttle.Throttler
 }
 
 // Push sends a list of jobs to the queue.
@@ -41,13 +43,14 @@ func (p *Pool) Shutdown() {
 // NewPool creates a pool of background workers.
 func NewPool(store *storage.Storage, nbWorkers int) *Pool {
 	workerPool := &Pool{
-		queue:    make(chan model.Job),
-		shutdown: make(chan struct{}),
+		queue:     make(chan model.Job),
+		shutdown:  make(chan struct{}),
+		throttler: newThrottlerFromConfig(),
 	}
 
 	for i := range nbWorkers {
 		workerPool.wg.Add(1)
-		worker := &worker{id: i, store: store}
+		worker := &worker{id: i, store: store, throttler: workerPool.throttler}
 		go worker.Run(workerPool.queue, workerPool.shutdown, &workerPool.wg)
 	}
 

@@ -6,6 +6,7 @@ package config // import "miniflux.app/v2/internal/config"
 import (
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestBaseURLOptionParsing(t *testing.T) {
@@ -1055,6 +1056,51 @@ func TestPollingLimitPerHostOptionParsing(t *testing.T) {
 
 	if configParser.options.PollingLimitPerHost() != 5 {
 		t.Fatalf("Expected POLLING_LIMIT_PER_HOST to be 5")
+	}
+}
+
+func TestPollingThrottleOptionParsing(t *testing.T) {
+	configParser := NewConfigParser()
+
+	if configParser.options.PollingThrottleEnabled() {
+		t.Fatal("Expected POLLING_THROTTLE_ENABLED to be disabled by default")
+	}
+
+	if configParser.options.PollingThrottleMinInterval() != 30*time.Second {
+		t.Fatalf("Expected POLLING_THROTTLE_MIN_INTERVAL to be 30s by default, got %s", configParser.options.PollingThrottleMinInterval())
+	}
+
+	if configParser.options.PollingThrottleMaxInterval() != 5*time.Minute {
+		t.Fatalf("Expected POLLING_THROTTLE_MAX_INTERVAL to be 5m by default, got %s", configParser.options.PollingThrottleMaxInterval())
+	}
+
+	if configParser.options.PollingThrottleMaxConcurrent() != 1 {
+		t.Fatalf("Expected POLLING_THROTTLE_MAX_CONCURRENT to be 1 by default, got %d", configParser.options.PollingThrottleMaxConcurrent())
+	}
+
+	if err := configParser.parseLines([]string{
+		"POLLING_THROTTLE_ENABLED=1",
+		"POLLING_THROTTLE_MIN_INTERVAL=10",
+		"POLLING_THROTTLE_MAX_INTERVAL=120",
+		"POLLING_THROTTLE_MAX_CONCURRENT=3",
+	}); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if !configParser.options.PollingThrottleEnabled() {
+		t.Fatal("Expected POLLING_THROTTLE_ENABLED to be enabled")
+	}
+
+	if configParser.options.PollingThrottleMinInterval() != 10*time.Second {
+		t.Fatalf("Expected POLLING_THROTTLE_MIN_INTERVAL to be 10s, got %s", configParser.options.PollingThrottleMinInterval())
+	}
+
+	if configParser.options.PollingThrottleMaxInterval() != 2*time.Minute {
+		t.Fatalf("Expected POLLING_THROTTLE_MAX_INTERVAL to be 2m, got %s", configParser.options.PollingThrottleMaxInterval())
+	}
+
+	if configParser.options.PollingThrottleMaxConcurrent() != 3 {
+		t.Fatalf("Expected POLLING_THROTTLE_MAX_CONCURRENT to be 3, got %d", configParser.options.PollingThrottleMaxConcurrent())
 	}
 }
 

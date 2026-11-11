@@ -99,6 +99,19 @@ func (r *ResponseHandler) IsRateLimited() bool {
 	return r.httpResponse != nil && r.httpResponse.StatusCode == http.StatusTooManyRequests
 }
 
+func (r *ResponseHandler) IsServiceUnavailable() bool {
+	return r.httpResponse != nil && r.httpResponse.StatusCode == http.StatusServiceUnavailable
+}
+
+// StatusCode returns the HTTP status code of the response, or 0 when no
+// response was received.
+func (r *ResponseHandler) StatusCode() int {
+	if r.httpResponse == nil {
+		return 0
+	}
+	return r.httpResponse.StatusCode
+}
+
 func (r *ResponseHandler) IsModified(lastEtagValue, lastModifiedValue string) bool {
 	if r.httpResponse.StatusCode == http.StatusNotModified {
 		return false
@@ -190,32 +203,32 @@ func (r *ResponseHandler) LocalizedError() *locale.LocalizedErrorWrapper {
 	}
 
 	if r.isCloudflareChallenge() {
-		return locale.NewLocalizedErrorWrapper(fmt.Errorf("fetcher: blocked by Cloudflare challenge (%d status code)", r.httpResponse.StatusCode), "error.http_cloudflare_challenge")
+		return locale.NewLocalizedHTTPErrorWrapper(fmt.Errorf("fetcher: blocked by Cloudflare challenge (%d status code)", r.httpResponse.StatusCode), r.httpResponse.StatusCode, "error.http_cloudflare_challenge")
 	}
 
 	switch r.httpResponse.StatusCode {
 	case http.StatusUnauthorized:
-		return locale.NewLocalizedErrorWrapper(errors.New("fetcher: access unauthorized (401 status code)"), "error.http_not_authorized")
+		return locale.NewLocalizedHTTPErrorWrapper(errors.New("fetcher: access unauthorized (401 status code)"), r.httpResponse.StatusCode, "error.http_not_authorized")
 	case http.StatusForbidden:
-		return locale.NewLocalizedErrorWrapper(errors.New("fetcher: access forbidden (403 status code)"), "error.http_forbidden")
+		return locale.NewLocalizedHTTPErrorWrapper(errors.New("fetcher: access forbidden (403 status code)"), r.httpResponse.StatusCode, "error.http_forbidden")
 	case http.StatusTooManyRequests:
-		return locale.NewLocalizedErrorWrapper(errors.New("fetcher: too many requests (429 status code)"), "error.http_too_many_requests")
+		return locale.NewLocalizedHTTPErrorWrapper(errors.New("fetcher: too many requests (429 status code)"), r.httpResponse.StatusCode, "error.http_too_many_requests")
 	case http.StatusNotFound:
-		return locale.NewLocalizedErrorWrapper(errors.New("fetcher: resource not found (404 status code)"), "error.http_resource_not_found")
+		return locale.NewLocalizedHTTPErrorWrapper(errors.New("fetcher: resource not found (404 status code)"), r.httpResponse.StatusCode, "error.http_resource_not_found")
 	case http.StatusGone:
-		return locale.NewLocalizedErrorWrapper(errors.New("fetcher: resource not found (410 status code)"), "error.http_resource_not_found")
+		return locale.NewLocalizedHTTPErrorWrapper(errors.New("fetcher: resource not found (410 status code)"), r.httpResponse.StatusCode, "error.http_resource_not_found")
 	case http.StatusInternalServerError:
-		return locale.NewLocalizedErrorWrapper(errors.New("fetcher: remote server error (500 status code)"), "error.http_internal_server_error")
+		return locale.NewLocalizedHTTPErrorWrapper(errors.New("fetcher: remote server error (500 status code)"), r.httpResponse.StatusCode, "error.http_internal_server_error")
 	case http.StatusBadGateway:
-		return locale.NewLocalizedErrorWrapper(errors.New("fetcher: bad gateway (502 status code)"), "error.http_bad_gateway")
+		return locale.NewLocalizedHTTPErrorWrapper(errors.New("fetcher: bad gateway (502 status code)"), r.httpResponse.StatusCode, "error.http_bad_gateway")
 	case http.StatusServiceUnavailable:
-		return locale.NewLocalizedErrorWrapper(errors.New("fetcher: service unavailable (503 status code)"), "error.http_service_unavailable")
+		return locale.NewLocalizedHTTPErrorWrapper(errors.New("fetcher: service unavailable (503 status code)"), r.httpResponse.StatusCode, "error.http_service_unavailable")
 	case http.StatusGatewayTimeout:
-		return locale.NewLocalizedErrorWrapper(errors.New("fetcher: gateway timeout (504 status code)"), "error.http_gateway_timeout")
+		return locale.NewLocalizedHTTPErrorWrapper(errors.New("fetcher: gateway timeout (504 status code)"), r.httpResponse.StatusCode, "error.http_gateway_timeout")
 	}
 
 	if r.httpResponse.StatusCode >= 400 {
-		return locale.NewLocalizedErrorWrapper(fmt.Errorf("fetcher: unexpected status code (%d status code)", r.httpResponse.StatusCode), "error.http_unexpected_status_code", r.httpResponse.StatusCode)
+		return locale.NewLocalizedHTTPErrorWrapper(fmt.Errorf("fetcher: unexpected status code (%d status code)", r.httpResponse.StatusCode), r.httpResponse.StatusCode, "error.http_unexpected_status_code", r.httpResponse.StatusCode)
 	}
 
 	if r.httpResponse.StatusCode != 304 {

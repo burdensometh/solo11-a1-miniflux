@@ -520,6 +520,35 @@ func NewConfigOptions() *configOptions {
 					return validateGreaterOrEqualThan(rawValue, 0)
 				},
 			},
+			"POLLING_THROTTLE_ENABLED": {
+				parsedBoolValue: false,
+				rawValue:        "0",
+				valueType:       boolType,
+			},
+			"POLLING_THROTTLE_MIN_INTERVAL": {
+				parsedDuration: 30 * time.Second,
+				rawValue:       "30",
+				valueType:      secondType,
+				validator: func(rawValue string) error {
+					return validateGreaterOrEqualThan(rawValue, 0)
+				},
+			},
+			"POLLING_THROTTLE_MAX_INTERVAL": {
+				parsedDuration: 5 * time.Minute,
+				rawValue:       "300",
+				valueType:      secondType,
+				validator: func(rawValue string) error {
+					return validateGreaterOrEqualThan(rawValue, 1)
+				},
+			},
+			"POLLING_THROTTLE_MAX_CONCURRENT": {
+				parsedIntValue: 1,
+				rawValue:       "1",
+				valueType:      intType,
+				validator: func(rawValue string) error {
+					return validateGreaterOrEqualThan(rawValue, 0)
+				},
+			},
 			"POLLING_PARSING_ERROR_LIMIT": {
 				parsedIntValue: 3,
 				rawValue:       "3",
@@ -972,6 +1001,22 @@ func (c *configOptions) PollingFrequency() time.Duration {
 
 func (c *configOptions) PollingLimitPerHost() int {
 	return c.options["POLLING_LIMIT_PER_HOST"].parsedIntValue
+}
+
+func (c *configOptions) PollingThrottleEnabled() bool {
+	return c.options["POLLING_THROTTLE_ENABLED"].parsedBoolValue
+}
+
+func (c *configOptions) PollingThrottleMinInterval() time.Duration {
+	return c.options["POLLING_THROTTLE_MIN_INTERVAL"].parsedDuration
+}
+
+func (c *configOptions) PollingThrottleMaxInterval() time.Duration {
+	return c.options["POLLING_THROTTLE_MAX_INTERVAL"].parsedDuration
+}
+
+func (c *configOptions) PollingThrottleMaxConcurrent() int {
+	return c.options["POLLING_THROTTLE_MAX_CONCURRENT"].parsedIntValue
 }
 
 func (c *configOptions) PollingParsingErrorLimit() int {

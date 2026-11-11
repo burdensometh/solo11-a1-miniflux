@@ -9,6 +9,7 @@ type LocalizedErrorWrapper struct {
 	originalErr     error
 	translationKey  string
 	translationArgs []any
+	httpStatusCode  int
 }
 
 func NewLocalizedErrorWrapper(originalErr error, translationKey string, translationArgs ...any) *LocalizedErrorWrapper {
@@ -19,8 +20,23 @@ func NewLocalizedErrorWrapper(originalErr error, translationKey string, translat
 	}
 }
 
+// NewLocalizedHTTPErrorWrapper creates an error wrapper that also carries the
+// HTTP status code returned by the remote server. A zero status code means the
+// failure happened before any response was received.
+func NewLocalizedHTTPErrorWrapper(originalErr error, httpStatusCode int, translationKey string, translationArgs ...any) *LocalizedErrorWrapper {
+	wrapper := NewLocalizedErrorWrapper(originalErr, translationKey, translationArgs...)
+	wrapper.httpStatusCode = httpStatusCode
+	return wrapper
+}
+
 func (l *LocalizedErrorWrapper) Error() error {
 	return l.originalErr
+}
+
+// HTTPStatusCode returns the HTTP status code associated with the error, or 0
+// when the failure is not tied to a response.
+func (l *LocalizedErrorWrapper) HTTPStatusCode() int {
+	return l.httpStatusCode
 }
 
 func (l *LocalizedErrorWrapper) Translate(language string) string {

@@ -292,3 +292,40 @@ func TestResponseHandlerCloseClosesBodyOnClientError(t *testing.T) {
 		t.Error("Expected response body to be closed")
 	}
 }
+
+func TestStatusCodeHelpers(t *testing.T) {
+	cases := map[string]struct {
+		status         int
+		rateLimited    bool
+		serviceUnavail bool
+	}{
+		"200 OK":                  {status: http.StatusOK, rateLimited: false, serviceUnavail: false},
+		"429 Too Many Requests":   {status: http.StatusTooManyRequests, rateLimited: true, serviceUnavail: false},
+		"503 Service Unavailable": {status: http.StatusServiceUnavailable, rateLimited: false, serviceUnavail: true},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			rh := &ResponseHandler{httpResponse: &http.Response{StatusCode: tc.status}}
+
+			if got := rh.StatusCode(); got != tc.status {
+				t.Errorf("StatusCode() = %d, want %d", got, tc.status)
+			}
+			if got := rh.IsRateLimited(); got != tc.rateLimited {
+				t.Errorf("IsRateLimited() = %v, want %v", got, tc.rateLimited)
+			}
+			if got := rh.IsServiceUnavailable(); got != tc.serviceUnavail {
+				t.Errorf("IsServiceUnavailable() = %v, want %v", got, tc.serviceUnavail)
+			}
+		})
+	}
+
+	// A missing response reports a zero status and never panics.
+	nilRH := &ResponseHandler{}
+	if got := nilRH.StatusCode(); got != 0 {
+		t.Errorf("StatusCode() on nil response = %d, want 0", got)
+	}
+	if nilRH.IsRateLimited() || nilRH.IsServiceUnavailable() {
+		t.Error("Nil response must not be reported as rate limited or unavailable")
+	}
+}

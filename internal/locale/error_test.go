@@ -307,3 +307,22 @@ func TestLocalizedError_EmptyKey(t *testing.T) {
 		t.Errorf("Expected empty string for empty key translation, got %q", result)
 	}
 }
+
+func TestNewLocalizedHTTPErrorWrapper(t *testing.T) {
+	originalErr := errors.New("too many requests")
+	wrapper := NewLocalizedHTTPErrorWrapper(originalErr, 429, "error.http_too_many_requests")
+
+	if got := wrapper.HTTPStatusCode(); got != 429 {
+		t.Errorf("Expected HTTP status code 429, got %d", got)
+	}
+
+	if wrapper.Error() != originalErr {
+		t.Error("Expected the original error to be preserved")
+	}
+
+	// A plain wrapper without an HTTP context reports a zero status code.
+	plain := NewLocalizedErrorWrapper(originalErr, "error.generic")
+	if got := plain.HTTPStatusCode(); got != 0 {
+		t.Errorf("Expected zero status code for plain wrapper, got %d", got)
+	}
+}

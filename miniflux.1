@@ -602,6 +602,35 @@ during batch processing by the worker pool.
 .IP
 Default is 0 (disabled).
 .TP
+.B POLLING_THROTTLE_ENABLED
+Enables per-host request pacing in the background workers.
+When enabled, requests to each hostname are serialized with a
+minimum interval and a concurrency limit, independently of other hosts.
+Hosts answering with HTTP 429 or 503 trigger an adaptive backoff that
+doubles the effective interval until the host recovers; other hosts keep
+running at their normal pace.
+.IP
+Disabled by default.
+.TP
+.B POLLING_THROTTLE_MIN_INTERVAL
+Minimum interval in seconds between two outgoing requests to the same
+hostname, and the baseline interval the adaptive backoff relaxes back to.
+.IP
+Default is 30 seconds.
+.TP
+.B POLLING_THROTTLE_MAX_INTERVAL
+Maximum interval in seconds between two requests to the same hostname,
+including the adaptive backoff applied after rate limiting responses.
+.IP
+Default is 300 seconds.
+.TP
+.B POLLING_THROTTLE_MAX_CONCURRENT
+Maximum number of simultaneous requests to the same hostname.
+Set to 0 to allow any number of concurrent requests while still
+enforcing the minimum interval.
+.IP
+Default is 1.
+.TP
 .B POLLING_PARSING_ERROR_LIMIT
 The maximum number of parsing errors that the program will try
 before stopping polling a feed.
