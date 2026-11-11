@@ -94,7 +94,7 @@ func updateEntryReadingTime(store *storage.Storage, feed *model.Feed, entry *mod
 					entry.ReadingTime = watchTime
 				}
 			} else {
-				entry.ReadingTime = store.GetReadTime(feed.ID, entry.Hash)
+				entry.ReadingTime = store.GetReadTime(user.ID, feed.ID, entry.Hash)
 			}
 			break
 		}

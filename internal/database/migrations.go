@@ -1590,4 +1590,159 @@ var migrations = [...]func(tx *sql.Tx) error{
 		_, err = tx.Exec(sql)
 		return err
 	},
+	func(tx *sql.Tx) (err error) {
+		// Cross-feed deduplication: the same article carried by several feeds
+		// of the same site is stored as a single entry linked to each feed
+		// through the entry_feeds junction table. entries.feed_id remains the
+		// canonical (owning) feed.
+		sql := `
+			-- Normalizes a site URL so that feeds pointing to the same site
+			-- compare equal (case, scheme and trailing slashes are ignored).
+			CREATE FUNCTION normalize_site_url(text) RETURNS text
+				LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+				RETURN regexp_replace(lower(rtrim($1, '/')), '^https?://', '');
+
+			CREATE TABLE entry_feeds (
+				entry_id bigint not null references entries(id) on delete cascade,
+				feed_id bigint not null references feeds(id) on delete cascade,
+				primary key (entry_id, feed_id)
+			);
+
+			CREATE INDEX entry_feeds_feed_id_idx ON entry_feeds (feed_id);
+
+			-- Speeds up the per-user hash lookups used to detect duplicates.
+			CREATE INDEX entries_user_id_hash_idx ON entries (user_id, hash);
+
+			-- Existing entries are carried by their own feed.
+			INSERT INTO entry_feeds (entry_id, feed_id)
+				SELECT id, feed_id FROM entries
+				ON CONFLICT DO NOTHING;
+
+			-- Merge duplicated entries: same user, same hash and feeds
+			-- pointing to the same site.
+			CREATE TEMPORARY TABLE entry_merge_plan (
+				canonical_id bigint not null,
+				merged_id bigint not null,
+				feed_id bigint not null,
+				primary key (merged_id)
+			) ON COMMIT DROP;
+
+			WITH duplicate_groups AS (
+				SELECT
+					e.user_id,
+					e.hash,
+					normalize_site_url(f.site_url) AS site_url,
+					min(e.id) AS canonical_id
+				FROM entries e
+					JOIN feeds f ON f.id = e.feed_id
+				GROUP BY e.user_id, e.hash, normalize_site_url(f.site_url)
+				HAVING count(*) > 1
+			)
+			INSERT INTO entry_merge_plan (canonical_id, merged_id, feed_id)
+				SELECT g.canonical_id, e.id, e.feed_id
+				FROM duplicate_groups g
+					JOIN entries e
+						ON e.user_id = g.user_id
+						AND e.hash = g.hash
+						AND e.id <> g.canonical_id
+					JOIN feeds f
+						ON f.id = e.feed_id
+						AND normalize_site_url(f.site_url) = g.site_url;
+
+			-- Fold the state of the merged copies into the canonical entry:
+			-- an article read or starred anywhere stays read or starred.
+			UPDATE entries c
+			SET
+				status = CASE WHEN merged.any_read THEN 'read'::entry_status ELSE c.status END,
+				starred = c.starred OR merged.any_starred
+			FROM (
+				SELECT
+					p.canonical_id,
+					bool_or(m.status = 'read') AS any_read,
+					bool_or(m.starred) AS any_starred
+				FROM entry_merge_plan p
+					JOIN entries m ON m.id = p.merged_id
+				GROUP BY p.canonical_id
+			) merged
+			WHERE c.id = merged.canonical_id;
+
+			-- Keep the share code of a merged copy when the canonical entry
+			-- has none. The copies are cleared first because share_code has a
+			-- unique index.
+			CREATE TEMPORARY TABLE entry_merge_share_codes (
+				canonical_id bigint primary key,
+				share_code text not null
+			) ON COMMIT DROP;
+
+			INSERT INTO entry_merge_share_codes (canonical_id, share_code)
+				SELECT canonical_id, share_code
+				FROM (
+					SELECT
+						p.canonical_id,
+						m.share_code,
+						row_number() OVER (PARTITION BY p.canonical_id ORDER BY m.id) AS rn
+					FROM entry_merge_plan p
+						JOIN entries m ON m.id = p.merged_id
+					WHERE m.share_code <> ''
+				) s
+				WHERE rn = 1;
+
+			UPDATE entries m
+			SET share_code = ''
+			FROM entry_merge_plan p
+			WHERE m.id = p.merged_id AND m.share_code <> '';
+
+			UPDATE entries c
+			SET share_code = s.share_code
+			FROM entry_merge_share_codes s
+			WHERE c.id = s.canonical_id AND c.share_code = '';
+
+			DROP TABLE entry_merge_share_codes;
+
+			-- Move enclosures to the canonical entry. Enclosures whose URL is
+			-- already present on the canonical entry or on an older merged
+			-- copy are duplicates: delete them first so the move cannot
+			-- violate the (user_id, entry_id, url) unique index.
+			DELETE FROM enclosures enc
+				USING entry_merge_plan p
+				WHERE enc.entry_id = p.merged_id
+					AND (
+						EXISTS (
+							SELECT 1 FROM enclosures x
+							WHERE
+								x.user_id = enc.user_id
+								AND x.entry_id = p.canonical_id
+								AND sha256(x.url::bytea) = sha256(enc.url::bytea)
+						)
+						OR EXISTS (
+							SELECT 1
+							FROM enclosures x
+								JOIN entry_merge_plan px
+									ON x.entry_id = px.merged_id
+									AND px.canonical_id = p.canonical_id
+							WHERE
+								x.user_id = enc.user_id
+								AND sha256(x.url::bytea) = sha256(enc.url::bytea)
+								AND x.id < enc.id
+						)
+					);
+
+			UPDATE enclosures enc
+			SET entry_id = p.canonical_id
+			FROM entry_merge_plan p
+			WHERE enc.entry_id = p.merged_id;
+
+			-- Link the canonical entry to every feed that carried a copy.
+			INSERT INTO entry_feeds (entry_id, feed_id)
+				SELECT canonical_id, feed_id FROM entry_merge_plan
+				ON CONFLICT DO NOTHING;
+
+			-- Drop the duplicated rows (their remaining relations cascade).
+			DELETE FROM entries WHERE id IN (SELECT merged_id FROM entry_merge_plan);
+
+			DROP TABLE entry_merge_plan;
+		`
+		_, err = tx.Exec(sql)
+		return err
+	},
 }

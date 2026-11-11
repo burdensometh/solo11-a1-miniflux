@@ -138,7 +138,8 @@ func (s *Storage) CategoriesWithFeedCount(userID int64, sortOrder string) (model
 		LEFT JOIN (
 			SELECT f.category_id, count(*) AS unread_count
 			FROM entries e
-			INNER JOIN feeds f ON f.id = e.feed_id
+			INNER JOIN entry_feeds ef ON ef.entry_id = e.id
+			INNER JOIN feeds f ON f.id = ef.feed_id
 			WHERE e.user_id = $2 AND e.status = $1
 			GROUP BY f.category_id
 		) uc ON uc.category_id = c.id
@@ -230,10 +231,53 @@ func (s *Storage) UpdateCategory(category *model.Category) error {
 	return nil
 }
 
-// RemoveCategory deletes a category.
+// categoryFeedIDs returns the IDs of the feeds belonging to the category.
+func categoryFeedIDs(tx *sql.Tx, userID, categoryID int64) ([]int64, error) {
+	rows, err := tx.Query(`SELECT id FROM feeds WHERE category_id = $1 AND user_id = $2`, categoryID, userID)
+	if err != nil {
+		return nil, fmt.Errorf(`store: unable to fetch feeds of category #%d: %v`, categoryID, err)
+	}
+	defer rows.Close()
+
+	var feedIDs []int64
+	for rows.Next() {
+		var feedID int64
+		if err := rows.Scan(&feedID); err != nil {
+			return nil, fmt.Errorf(`store: unable to fetch feed of category #%d: %v`, categoryID, err)
+		}
+		feedIDs = append(feedIDs, feedID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(`store: unable to fetch feeds of category #%d: %v`, categoryID, err)
+	}
+
+	return feedIDs, nil
+}
+
+// RemoveCategory deletes a category. Entries shared with feeds of other
+// categories are kept; only the entries carried exclusively by the feeds of
+// this category are deleted along with it.
 func (s *Storage) RemoveCategory(userID, categoryID int64) error {
-	query := `DELETE FROM categories WHERE id = $1 AND user_id = $2`
-	result, err := s.db.Exec(query, categoryID, userID)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf(`store: unable to start transaction: %v`, err)
+	}
+	defer tx.Rollback()
+
+	// The feeds of this category are deleted by the ON DELETE CASCADE.
+	// Reassign the entries they share with other feeds first.
+	feedIDs, err := categoryFeedIDs(tx, userID, categoryID)
+	if err != nil {
+		return err
+	}
+
+	if len(feedIDs) > 0 {
+		if err := s.reassignSharedEntries(tx, feedIDs); err != nil {
+			return err
+		}
+	}
+
+	result, err := tx.Exec(`DELETE FROM categories WHERE id = $1 AND user_id = $2`, categoryID, userID)
 	if err != nil {
 		return fmt.Errorf(`store: unable to remove this category: %v`, err)
 	}
@@ -245,6 +289,10 @@ func (s *Storage) RemoveCategory(userID, categoryID int64) error {
 
 	if count == 0 {
 		return errors.New(`store: no category has been removed`)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf(`store: unable to remove this category: %v`, err)
 	}
 
 	return nil

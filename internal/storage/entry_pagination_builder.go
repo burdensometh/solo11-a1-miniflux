@@ -44,7 +44,10 @@ func (e *entryPaginationBuilder) WithStarred() *entryPaginationBuilder {
 // WithFeedID adds feed_id to the condition.
 func (e *entryPaginationBuilder) WithFeedID(feedID int64) *entryPaginationBuilder {
 	if feedID != 0 {
-		e.conditions = append(e.conditions, "e.feed_id = $"+strconv.Itoa(len(e.args)+1))
+		e.conditions = append(e.conditions, fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM entry_feeds ef
+			WHERE ef.entry_id = e.id AND ef.feed_id = $%d
+		)`, len(e.args)+1))
 		e.args = append(e.args, feedID)
 	}
 
@@ -54,7 +57,12 @@ func (e *entryPaginationBuilder) WithFeedID(feedID int64) *entryPaginationBuilde
 // WithCategoryID adds category_id to the condition.
 func (e *entryPaginationBuilder) WithCategoryID(categoryID int64) *entryPaginationBuilder {
 	if categoryID != 0 {
-		e.conditions = append(e.conditions, "f.category_id = $"+strconv.Itoa(len(e.args)+1))
+		e.conditions = append(e.conditions, fmt.Sprintf(`EXISTS (
+			SELECT 1
+			FROM entry_feeds ef
+				JOIN feeds f2 ON f2.id = ef.feed_id
+			WHERE ef.entry_id = e.id AND f2.category_id = $%d
+		)`, len(e.args)+1))
 		e.args = append(e.args, categoryID)
 	}
 
@@ -101,8 +109,16 @@ func (e *entryPaginationBuilder) WithTags(tags []string) *entryPaginationBuilder
 
 // WithGloballyVisible adds global visibility to the condition.
 func (e *entryPaginationBuilder) WithGloballyVisible() *entryPaginationBuilder {
-	e.conditions = append(e.conditions, "not c.hide_globally")
-	e.conditions = append(e.conditions, "not f.hide_globally")
+	e.conditions = append(e.conditions, `EXISTS (
+		SELECT 1
+		FROM entry_feeds ef
+			JOIN feeds f2 ON f2.id = ef.feed_id
+			JOIN categories c2 ON c2.id = f2.category_id
+		WHERE
+			ef.entry_id = e.id
+			AND f2.hide_globally IS FALSE
+			AND c2.hide_globally IS FALSE
+	)`)
 
 	return e
 }
@@ -149,8 +165,6 @@ func (e *entryPaginationBuilder) getPrevNextID(tx *sql.Tx) (prevID int64, nextID
 				lag(e.id) over (order by e.%[1]s asc, e.created_at asc, e.id desc) as prev_id,
 				lead(e.id) over (order by e.%[1]s asc, e.created_at asc, e.id desc) as next_id
 			FROM entries AS e
-			JOIN feeds AS f ON f.id=e.feed_id
-			JOIN categories c ON c.id = f.category_id
 			WHERE %[2]s
 			ORDER BY e.%[1]s asc, e.created_at asc, e.id desc
 		)

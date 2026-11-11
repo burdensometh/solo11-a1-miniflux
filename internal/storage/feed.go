@@ -12,6 +12,8 @@ import (
 
 	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/model"
+
+	"github.com/lib/pq"
 )
 
 type byStateAndName struct{ f model.Feeds }
@@ -182,14 +184,15 @@ func (s *Storage) WeeklyFeedEntryCount(userID, feedID int64) (int, error) {
 		SELECT
 			COALESCE(CAST(CEIL(
 				(EXTRACT(epoch from interval '1 week'))	/
-				NULLIF((EXTRACT(epoch from (max(published_at)-min(published_at))/NULLIF((count(*)-1), 0) )), 0)
+				NULLIF((EXTRACT(epoch from (max(e.published_at)-min(e.published_at))/NULLIF((count(*)-1), 0) )), 0)
 			) AS BIGINT), 0)
 		FROM
-			entries
+			entries e
+			JOIN entry_feeds ef ON ef.entry_id = e.id
 		WHERE
-			entries.user_id=$1 AND
-			entries.feed_id=$2 AND
-			entries.published_at >= now() - interval '1 week';
+			e.user_id=$1 AND
+			ef.feed_id=$2 AND
+			e.published_at >= now() - interval '1 week';
 	`
 
 	var weeklyCount int
@@ -307,21 +310,11 @@ func (s *Storage) CreateFeed(feed *model.Feed) error {
 			return fmt.Errorf(`store: unable to start transaction: %v`, err)
 		}
 
-		entryExists, err := s.entryExists(tx, entry)
-		if err != nil {
+		if _, err := s.upsertFeedEntry(tx, entry, false); err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				return fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
 			}
 			return err
-		}
-
-		if !entryExists {
-			if err := s.createEntry(tx, entry); err != nil {
-				if rollbackErr := tx.Rollback(); rollbackErr != nil {
-					return fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
-				}
-				return err
-			}
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -456,11 +449,59 @@ func (s *Storage) UpdateFeedError(feed *model.Feed) (err error) {
 	return nil
 }
 
-// RemoveFeed removes the given feed along with its entries and enclosures.
+// reassignSharedEntries moves the canonical feed of entries that are still
+// carried by feeds other than the ones being removed to one of their
+// remaining feeds, so the ON DELETE CASCADE does not delete entries that
+// still belong to other feeds.
+func (s *Storage) reassignSharedEntries(tx *sql.Tx, feedIDs []int64) error {
+	query := `
+		UPDATE entries
+		SET feed_id = (
+			SELECT ef.feed_id
+			FROM entry_feeds ef
+			WHERE
+				ef.entry_id = entries.id
+				AND ef.feed_id <> ALL($1)
+			ORDER BY ef.feed_id
+			LIMIT 1
+		)
+		WHERE
+			feed_id = ANY($1)
+			AND EXISTS (
+				SELECT 1
+				FROM entry_feeds ef
+				WHERE
+					ef.entry_id = entries.id
+					AND ef.feed_id <> ALL($1)
+			)
+	`
+	if _, err := tx.Exec(query, pq.Array(feedIDs)); err != nil {
+		return fmt.Errorf(`store: unable to reassign shared entries: %v`, err)
+	}
+	return nil
+}
+
+// RemoveFeed removes the given feed. Entries still carried by other feeds are
+// kept; entries carried only by this feed are deleted along with it.
 func (s *Storage) RemoveFeed(userID, feedID int64) error {
-	if _, err := s.db.Exec(`DELETE FROM feeds WHERE id=$1 AND user_id=$2`, feedID, userID); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf(`store: unable to start transaction: %v`, err)
+	}
+	defer tx.Rollback()
+
+	if err := s.reassignSharedEntries(tx, []int64{feedID}); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`DELETE FROM feeds WHERE id=$1 AND user_id=$2`, feedID, userID); err != nil {
 		return fmt.Errorf(`store: unable to delete feed #%d: %v`, feedID, err)
 	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf(`store: unable to delete feed #%d: %v`, feedID, err)
+	}
+
 	return nil
 }
 

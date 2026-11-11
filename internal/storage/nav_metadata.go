@@ -22,12 +22,17 @@ func (s *Storage) GetNavMetadata(userID int64) (NavMetadata, error) {
 		SELECT
 			(SELECT count(*)
 			   FROM entries e
-			   JOIN feeds f ON f.id = e.feed_id
-			   JOIN categories c ON c.id = f.category_id
 			  WHERE e.user_id = $1
 			    AND e.status = 'unread'
-			    AND f.hide_globally IS FALSE
-			    AND c.hide_globally IS FALSE
+			    AND EXISTS (
+					SELECT 1
+					  FROM entry_feeds ef
+					    JOIN feeds f ON f.id = ef.feed_id
+					    JOIN categories c ON c.id = f.category_id
+					 WHERE ef.entry_id = e.id
+					   AND f.hide_globally IS FALSE
+					   AND c.hide_globally IS FALSE
+				)
 			) AS count_unread,
 			(SELECT EXISTS(
 				SELECT 1

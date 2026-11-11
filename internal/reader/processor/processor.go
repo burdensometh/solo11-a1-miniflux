@@ -72,7 +72,7 @@ func ProcessFeedEntries(store *storage.Storage, feed *model.Feed, userID int64) 
 		}
 
 		entry.URL = rewrite.RewriteEntryURL(feed, entry)
-		entryIsNew := store.IsNewEntry(feed.ID, entry.Hash)
+		entryIsNew := store.IsNewEntry(userID, feed.ID, entry.Hash)
 
 		rewrite.ApplyContentRewriteRules(entry, feed.RewriteRules)
 

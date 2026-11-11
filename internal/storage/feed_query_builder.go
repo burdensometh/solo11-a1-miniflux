@@ -303,20 +303,21 @@ func (f *feedQueryBuilder) fetchFeedCounter() (unreadCounters map[int64]int, rea
 	}
 	query := `
 		SELECT
-			e.feed_id,
+			ef.feed_id,
 			e.status,
 			count(*)
 		FROM
 			entries e
+			JOIN entry_feeds ef ON ef.entry_id = e.id
 		%s
 		WHERE
 			%s
 		GROUP BY
-			e.feed_id, e.status
+			ef.feed_id, e.status
 	`
 	join := ""
 	if f.counterJoinFeeds {
-		join = "INNER JOIN feeds f ON f.id=e.feed_id"
+		join = "INNER JOIN feeds f ON f.id=ef.feed_id"
 	}
 	query = fmt.Sprintf(query, join, f.buildCounterCondition())
 

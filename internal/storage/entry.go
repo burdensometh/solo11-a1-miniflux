@@ -151,6 +151,14 @@ func (s *Storage) createEntry(tx *sql.Tx, entry *model.Entry) error {
 		return fmt.Errorf(`store: unable to create entry %q (feed #%d): %v`, entry.URL, entry.FeedID, err)
 	}
 
+	if _, err := tx.Exec(
+		`INSERT INTO entry_feeds (entry_id, feed_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		entry.ID,
+		entry.FeedID,
+	); err != nil {
+		return fmt.Errorf(`store: unable to link entry #%d to feed #%d: %v`, entry.ID, entry.FeedID, err)
+	}
+
 	for _, enclosure := range entry.Enclosures {
 		enclosure.EntryID = entry.ID
 		enclosure.UserID = entry.UserID
@@ -179,10 +187,10 @@ func (s *Storage) updateEntry(tx *sql.Tx, entry *model.Entry) error {
 			author=$5,
 			reading_time=$6,
 			document_vectors = setweight(to_tsvector($7), 'A') || setweight(to_tsvector($8), 'B'),
-			tags=$12,
-			language=$13
+			tags=$9,
+			language=$10
 		WHERE
-			user_id=$9 AND feed_id=$10 AND hash=$11
+			id=$11 AND user_id=$12
 		RETURNING
 			id
 	`
@@ -196,11 +204,10 @@ func (s *Storage) updateEntry(tx *sql.Tx, entry *model.Entry) error {
 		entry.ReadingTime,
 		truncatedTitle,
 		truncatedContent,
-		entry.UserID,
-		entry.FeedID,
-		entry.Hash,
 		pq.Array(entry.Tags),
 		entry.Language,
+		entry.ID,
+		entry.UserID,
 	).Scan(&entry.ID)
 	if err != nil {
 		return fmt.Errorf(`store: unable to update entry %q: %v`, entry.URL, err)
@@ -214,25 +221,30 @@ func (s *Storage) updateEntry(tx *sql.Tx, entry *model.Entry) error {
 	return s.updateEnclosures(tx, entry)
 }
 
-// entryExists checks if an entry already exists based on its hash when refreshing a feed.
-func (s *Storage) entryExists(tx *sql.Tx, entry *model.Entry) (bool, error) {
-	var result bool
-
-	// Note: This query uses entries_feed_id_hash_key index (filtering on user_id is not necessary).
-	err := tx.QueryRow(`SELECT true FROM entries WHERE feed_id=$1 AND hash=$2 LIMIT 1`, entry.FeedID, entry.Hash).Scan(&result)
-
-	if err != nil && err != sql.ErrNoRows {
-		return result, fmt.Errorf(`store: unable to check if entry exists: %v`, err)
+// lockEntryHash takes a transaction-scoped advisory lock on the (user, hash)
+// pair so that two feeds of the same site refreshed concurrently cannot
+// insert a duplicate of the same article.
+func (s *Storage) lockEntryHash(tx *sql.Tx, userID int64, entryHash string) error {
+	if _, err := tx.Exec(
+		`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		fmt.Sprintf("%d:%s", userID, entryHash),
+	); err != nil {
+		return fmt.Errorf(`store: unable to lock entry hash: %v`, err)
 	}
-
-	return result, nil
+	return nil
 }
 
-func (s *Storage) getEntryIDByHash(tx *sql.Tx, feedID int64, entryHash string) (int64, error) {
+// getLinkedEntryID returns the ID of the entry with the given hash carried by
+// the feed, or 0 when the feed does not carry such an entry.
+func (s *Storage) getLinkedEntryID(tx *sql.Tx, feedID int64, entryHash string) (int64, error) {
 	var entryID int64
 
 	err := tx.QueryRow(
-		`SELECT id FROM entries WHERE feed_id=$1 AND hash=$2 LIMIT 1`,
+		`SELECT e.id
+		FROM entries e
+			JOIN entry_feeds ef ON ef.entry_id = e.id
+		WHERE ef.feed_id=$1 AND e.hash=$2
+		LIMIT 1`,
 		feedID,
 		entryHash,
 	).Scan(&entryID)
@@ -247,8 +259,143 @@ func (s *Storage) getEntryIDByHash(tx *sql.Tx, feedID int64, entryHash string) (
 	return entryID, nil
 }
 
-// InsertEntryForFeed inserts a single entry into a feed, optionally updating if it already exists.
-// Returns true if a new entry was created, false if an existing one was reused.
+// findSharableEntryID returns the ID of an entry with the same hash already
+// carried by another feed of the same site (cross-feed duplicate), or 0 when
+// there is none.
+func (s *Storage) findSharableEntryID(tx *sql.Tx, entry *model.Entry) (int64, error) {
+	var entryID int64
+
+	err := tx.QueryRow(
+		`SELECT e.id
+		FROM entries e
+			JOIN entry_feeds ef ON ef.entry_id = e.id
+			JOIN feeds f ON f.id = ef.feed_id
+		WHERE
+			e.user_id = $1
+			AND e.hash = $2
+			AND normalize_site_url(f.site_url) = (
+				SELECT normalize_site_url(site_url) FROM feeds WHERE id = $3
+			)
+		ORDER BY e.id
+		LIMIT 1`,
+		entry.UserID,
+		entry.Hash,
+		entry.FeedID,
+	).Scan(&entryID)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf(`store: unable to find a sharable entry: %v`, err)
+	}
+
+	return entryID, nil
+}
+
+// linkEntryToFeed associates an existing entry with an additional feed. The
+// association is skipped when the (feed, hash) pair is tombstoned, so that an
+// entry deleted from a feed does not come back through a sibling feed.
+func (s *Storage) linkEntryToFeed(tx *sql.Tx, entryID, feedID int64, entryHash string) (bool, error) {
+	result, err := tx.Exec(
+		`INSERT INTO entry_feeds (entry_id, feed_id)
+		SELECT $1, $2
+		WHERE NOT EXISTS (
+			SELECT 1 FROM entry_tombstones WHERE feed_id = $2 AND hash = $3
+		)
+		ON CONFLICT (entry_id, feed_id) DO NOTHING`,
+		entryID,
+		feedID,
+		entryHash,
+	)
+	if err != nil {
+		return false, fmt.Errorf(`store: unable to link entry #%d to feed #%d: %v`, entryID, feedID, err)
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf(`store: unable to link entry #%d to feed #%d: %v`, entryID, feedID, err)
+	}
+
+	return count > 0, nil
+}
+
+// upsertFeedEntry stores an entry fetched from a feed:
+//   - the entry is already carried by this feed: it is optionally updated;
+//   - the same article already exists on a sibling feed of the same site: the
+//     existing entry is linked to this feed instead of creating a duplicate;
+//   - otherwise a new entry is created (unless it is tombstoned).
+//
+// It returns true when a new entry row has been created.
+func (s *Storage) upsertFeedEntry(tx *sql.Tx, entry *model.Entry, updateExisting bool) (bool, error) {
+	if err := s.lockEntryHash(tx, entry.UserID, entry.Hash); err != nil {
+		return false, err
+	}
+
+	entryID, err := s.getLinkedEntryID(tx, entry.FeedID, entry.Hash)
+	if err != nil {
+		return false, err
+	}
+
+	if entryID > 0 {
+		entry.ID = entryID
+		if updateExisting {
+			if err := s.updateEntry(tx, entry); err != nil {
+				return false, err
+			}
+		}
+		return false, nil
+	}
+
+	sharedEntryID, err := s.findSharableEntryID(tx, entry)
+	if err != nil {
+		return false, err
+	}
+
+	if sharedEntryID > 0 {
+		linked, err := s.linkEntryToFeed(tx, sharedEntryID, entry.FeedID, entry.Hash)
+		if err != nil {
+			return false, err
+		}
+		if linked {
+			entry.ID = sharedEntryID
+		}
+		return false, nil
+	}
+
+	if err := s.createEntry(tx, entry); err != nil {
+		if errors.Is(err, ErrEntryTombstoned) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
+// entryTombstoned returns true when the (feed, hash) pair has been deleted
+// previously and must not be re-ingested.
+func (s *Storage) entryTombstoned(tx *sql.Tx, feedID int64, entryHash string) (bool, error) {
+	var tombstoned bool
+	err := tx.QueryRow(
+		`SELECT true FROM entry_tombstones WHERE feed_id=$1 AND hash=$2 LIMIT 1`,
+		feedID,
+		entryHash,
+	).Scan(&tombstoned)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf(`store: unable to check entry tombstone: %v`, err)
+	}
+
+	return tombstoned, nil
+}
+
+// InsertEntryForFeed inserts a single entry into a feed, reusing the existing
+// entry when the article is already known to this feed or to a sibling feed
+// of the same site. Returns true if a new entry was created.
 func (s *Storage) InsertEntryForFeed(userID, feedID int64, entry *model.Entry) (bool, error) {
 	entry.UserID = userID
 	entry.FeedID = feedID
@@ -259,57 +406,85 @@ func (s *Storage) InsertEntryForFeed(userID, feedID int64, entry *model.Entry) (
 	}
 	defer tx.Rollback()
 
-	entryID, err := s.getEntryIDByHash(tx, entry.FeedID, entry.Hash)
+	tombstoned, err := s.entryTombstoned(tx, feedID, entry.Hash)
 	if err != nil {
 		return false, err
 	}
-	alreadyExistingEntry := entryID > 0
+	if tombstoned {
+		return false, ErrEntryTombstoned
+	}
 
-	if alreadyExistingEntry {
-		entry.ID = entryID
-	} else {
-		if err := s.createEntry(tx, entry); err != nil {
-			return false, err
-		}
+	created, err := s.upsertFeedEntry(tx, entry, false)
+	if err != nil {
+		return false, err
 	}
 
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
 
-	return !alreadyExistingEntry, nil
+	return created, nil
 }
 
-func (s *Storage) IsNewEntry(feedID int64, entryHash string) bool {
-	// An entry is new only if it is neither stored nor tombstoned; otherwise
-	// callers would do expensive work on every refresh for items that will be
-	// discarded.
+// IsNewEntry returns false when the entry is already known to the user:
+// carried by this feed or a sibling feed of the same site, or tombstoned.
+// Otherwise callers would do expensive work on every refresh for items that
+// will be discarded.
+func (s *Storage) IsNewEntry(userID, feedID int64, entryHash string) bool {
 	query := `
 		SELECT
 			EXISTS (
-				SELECT 1 FROM entries WHERE feed_id=$1 AND hash=$2
+				SELECT 1
+				FROM entries e
+					JOIN entry_feeds ef ON ef.entry_id = e.id
+				WHERE ef.feed_id=$2 AND e.hash=$3
 			) OR EXISTS (
-				SELECT 1 FROM entry_tombstones WHERE feed_id=$1 AND hash=$2
+				SELECT 1 FROM entry_tombstones WHERE feed_id=$2 AND hash=$3
+			) OR EXISTS (
+				SELECT 1
+				FROM entries e
+					JOIN entry_feeds ef ON ef.entry_id = e.id
+					JOIN feeds f ON f.id = ef.feed_id
+				WHERE
+					e.user_id=$1
+					AND e.hash=$3
+					AND normalize_site_url(f.site_url) = (
+						SELECT normalize_site_url(site_url) FROM feeds WHERE id = $2
+					)
 			)
 	`
 	var known bool
-	s.db.QueryRow(query, feedID, entryHash).Scan(&known)
+	s.db.QueryRow(query, userID, feedID, entryHash).Scan(&known)
 	return !known
 }
 
-func (s *Storage) GetReadTime(feedID int64, entryHash string) int {
+// GetReadTime returns the reading time of an existing entry with the same
+// hash, looking at this feed and sibling feeds of the same site.
+func (s *Storage) GetReadTime(userID, feedID int64, entryHash string) int {
 	var result int
 
-	// Note: This query uses entries_feed_id_hash_key index
 	s.db.QueryRow(
-		`SELECT
-			reading_time
-		FROM
-			entries
+		`SELECT e.reading_time
+		FROM entries e
 		WHERE
-			feed_id=$1 AND
-			hash=$2
-		`,
+			e.user_id=$1
+			AND e.hash=$3
+			AND (
+				e.feed_id=$2
+				OR EXISTS (
+					SELECT 1
+					FROM entry_feeds ef
+						JOIN feeds f ON f.id = ef.feed_id
+					WHERE
+						ef.entry_id = e.id
+						AND normalize_site_url(f.site_url) = (
+							SELECT normalize_site_url(site_url) FROM feeds WHERE id = $2
+						)
+				)
+			)
+		ORDER BY e.id
+		LIMIT 1`,
+		userID,
 		feedID,
 		entryHash,
 	).Scan(&result)
@@ -327,7 +502,7 @@ func (s *Storage) RefreshFeedEntries(userID, feedID int64, entries model.Entries
 			return nil, fmt.Errorf(`store: unable to start transaction: %v`, err)
 		}
 
-		entryExists, err := s.entryExists(tx, entry)
+		created, err := s.upsertFeedEntry(tx, entry, updateExistingEntries)
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				return nil, fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
@@ -335,25 +510,8 @@ func (s *Storage) RefreshFeedEntries(userID, feedID int64, entries model.Entries
 			return nil, err
 		}
 
-		if entryExists {
-			if updateExistingEntries {
-				err = s.updateEntry(tx, entry)
-			}
-		} else {
-			err = s.createEntry(tx, entry)
-			switch {
-			case errors.Is(err, ErrEntryTombstoned):
-				err = nil
-			case err == nil:
-				newEntries = append(newEntries, entry)
-			}
-		}
-
-		if err != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				return nil, fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
-			}
-			return nil, err
+		if created {
+			newEntries = append(newEntries, entry)
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -372,7 +530,7 @@ func (s *Storage) ArchiveEntries(status string, interval time.Duration, limit in
 
 	query := `
 		WITH to_delete AS (
-			SELECT id, feed_id, hash
+			SELECT id
 			FROM entries
 			WHERE
 				status=$1 AND
@@ -386,10 +544,13 @@ func (s *Storage) ArchiveEntries(status string, interval time.Duration, limit in
 			DELETE FROM entries
 			USING to_delete
 			WHERE entries.id = to_delete.id
-			RETURNING entries.feed_id, entries.hash
+			RETURNING entries.id, entries.hash
 		)
 		INSERT INTO entry_tombstones (feed_id, hash)
-		SELECT feed_id, hash FROM deleted WHERE hash <> ''
+		SELECT ef.feed_id, d.hash
+		FROM deleted d
+			JOIN entry_feeds ef ON ef.entry_id = d.id
+		WHERE d.hash <> ''
 		ON CONFLICT (feed_id, hash) DO NOTHING
 	`
 
@@ -438,13 +599,20 @@ func (s *Storage) SetEntriesStatusAndCountVisible(userID int64, entryIDs []int64
 			WHERE
 				user_id=$2 AND
 				id=ANY($3)
-			RETURNING feed_id
+			RETURNING id
 		)
 		SELECT count(*)
 		FROM updated u
-			JOIN feeds f ON (f.id = u.feed_id)
-			JOIN categories c ON (c.id = f.category_id)
-		WHERE NOT f.hide_globally AND NOT c.hide_globally
+		WHERE EXISTS (
+			SELECT 1
+			FROM entry_feeds ef
+				JOIN feeds f ON (f.id = ef.feed_id)
+				JOIN categories c ON (c.id = f.category_id)
+			WHERE
+				ef.entry_id = u.id
+				AND NOT f.hide_globally
+				AND NOT c.hide_globally
+		)
 	`
 	var visible int
 	if err := s.db.QueryRow(query, status, userID, pq.Array(entryIDs)).Scan(&visible); err != nil {
@@ -489,10 +657,13 @@ func (s *Storage) FlushHistory(userID int64) error {
 		WITH deleted AS (
 			DELETE FROM entries
 			WHERE user_id=$1 AND status=$2 AND starred is false AND share_code=''
-			RETURNING feed_id, hash
+			RETURNING id, hash
 		)
 		INSERT INTO entry_tombstones (feed_id, hash)
-		SELECT feed_id, hash FROM deleted WHERE hash <> ''
+		SELECT ef.feed_id, d.hash
+		FROM deleted d
+			JOIN entry_feeds ef ON ef.entry_id = d.id
+		WHERE d.hash <> ''
 		ON CONFLICT (feed_id, hash) DO NOTHING
 	`
 	if _, err := s.db.Exec(query, userID, model.EntryStatusRead); err != nil {
@@ -553,15 +724,19 @@ func (s *Storage) MarkGloballyVisibleFeedsAsRead(userID int64) error {
 		SET
 			status=$1,
 			changed_at=now()
-		FROM
-			feeds
-			JOIN categories ON (categories.id = feeds.category_id)
 		WHERE
-			entries.feed_id = feeds.id
-			AND entries.user_id=$2
-			AND entries.status=$3
-			AND feeds.hide_globally IS FALSE
-			AND categories.hide_globally IS FALSE
+			user_id=$2
+			AND status=$3
+			AND EXISTS (
+				SELECT 1
+				FROM entry_feeds ef
+					JOIN feeds f ON (f.id = ef.feed_id)
+					JOIN categories c ON (c.id = f.category_id)
+				WHERE
+					ef.entry_id = entries.id
+					AND f.hide_globally IS FALSE
+					AND c.hide_globally IS FALSE
+			)
 	`
 	result, err := s.db.Exec(query, model.EntryStatusRead, userID, model.EntryStatusUnread)
 	if err != nil {
@@ -586,7 +761,11 @@ func (s *Storage) MarkFeedAsRead(userID, feedID int64, before time.Time) error {
 			status=$1,
 			changed_at=now()
 		WHERE
-			user_id=$2 AND feed_id=$3 AND status=$4 AND published_at < $5
+			user_id=$2 AND status=$4 AND published_at < $5
+			AND EXISTS (
+				SELECT 1 FROM entry_feeds ef
+				WHERE ef.entry_id = entries.id AND ef.feed_id = $3
+			)
 	`
 	result, err := s.db.Exec(query, model.EntryStatusRead, userID, feedID, model.EntryStatusUnread, before)
 	if err != nil {
@@ -612,18 +791,20 @@ func (s *Storage) MarkCategoryAsRead(userID, categoryID int64, before time.Time)
 		SET
 			status=$1,
 			changed_at=now()
-		FROM
-			feeds
 		WHERE
-			feed_id=feeds.id
-		AND
-			feeds.user_id=$2
+			user_id=$2
 		AND
 			status=$3
 		AND
 			published_at < $4
-		AND
-			feeds.category_id=$5
+		AND EXISTS (
+			SELECT 1
+			FROM entry_feeds ef
+				JOIN feeds f ON (f.id = ef.feed_id)
+			WHERE
+				ef.entry_id = entries.id
+				AND f.category_id = $5
+		)
 	`
 	result, err := s.db.Exec(query, model.EntryStatusRead, userID, model.EntryStatusUnread, before, categoryID)
 	if err != nil {

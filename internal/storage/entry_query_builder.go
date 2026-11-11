@@ -18,14 +18,17 @@ import (
 
 // EntryQueryBuilder builds a SQL query to fetch entries.
 type EntryQueryBuilder struct {
-	store           *Storage
-	args            []any
-	conditions      []string
-	sortExpressions []string
-	limit           int
-	offset          int
-	fetchEnclosures bool
-	excludeContent  bool
+	store                 *Storage
+	args                  []any
+	conditions            []string
+	sortExpressions       []string
+	limit                 int
+	offset                int
+	fetchEnclosures       bool
+	excludeContent        bool
+	displayFeedExpr       string
+	displayCategoryExpr   string
+	displayVisibilityExpr string
 }
 
 // WithEnclosures fetches enclosures for each entry.
@@ -126,20 +129,45 @@ func (e *EntryQueryBuilder) WithEntryIDs(entryIDs ...int64) *EntryQueryBuilder {
 	return e
 }
 
-// WithFeedID filter by feed ID.
+// WithFeedID filter by feed ID. Entries carried by the feed through the
+// entry_feeds junction table are included, and each entry is described with
+// the attributes of this feed.
 func (e *EntryQueryBuilder) WithFeedID(feedID int64) *EntryQueryBuilder {
 	if feedID > 0 {
-		e.conditions = append(e.conditions, "e.feed_id = $"+strconv.Itoa(len(e.args)+1))
+		nArgs := len(e.args) + 1
+		e.conditions = append(e.conditions, fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM entry_feeds ef
+			WHERE ef.entry_id = e.id AND ef.feed_id = $%d
+		)`, nArgs))
 		e.args = append(e.args, feedID)
+		e.displayFeedExpr = fmt.Sprintf(`(
+			SELECT ef.feed_id FROM entry_feeds ef
+			WHERE ef.entry_id = e.id AND ef.feed_id = $%d
+		)`, nArgs)
 	}
 	return e
 }
 
-// WithCategoryID filter by category ID.
+// WithCategoryID filter by category ID. Entries carried by any feed of the
+// category are included, and each entry is described with the attributes of
+// one of its feeds belonging to the category.
 func (e *EntryQueryBuilder) WithCategoryID(categoryID int64) *EntryQueryBuilder {
 	if categoryID > 0 {
-		e.conditions = append(e.conditions, "f.category_id = $"+strconv.Itoa(len(e.args)+1))
+		nArgs := len(e.args) + 1
+		e.conditions = append(e.conditions, fmt.Sprintf(`EXISTS (
+			SELECT 1
+			FROM entry_feeds ef
+				JOIN feeds f2 ON f2.id = ef.feed_id
+			WHERE ef.entry_id = e.id AND f2.category_id = $%d
+		)`, nArgs))
 		e.args = append(e.args, categoryID)
+		e.displayCategoryExpr = fmt.Sprintf(`(
+			SELECT ef.feed_id
+			FROM entry_feeds ef
+				JOIN feeds f2 ON f2.id = ef.feed_id
+			WHERE ef.entry_id = e.id AND f2.category_id = $%d
+			LIMIT 1
+		)`, nArgs)
 	}
 	return e
 }
@@ -223,9 +251,30 @@ func (e *EntryQueryBuilder) WithOffset(offset int) *EntryQueryBuilder {
 	return e
 }
 
+// WithGloballyVisible restricts the entries to those carried by at least one
+// feed and category that are not hidden globally.
 func (e *EntryQueryBuilder) WithGloballyVisible() *EntryQueryBuilder {
-	e.conditions = append(e.conditions, "c.hide_globally IS FALSE")
-	e.conditions = append(e.conditions, "f.hide_globally IS FALSE")
+	e.conditions = append(e.conditions, `EXISTS (
+		SELECT 1
+		FROM entry_feeds ef
+			JOIN feeds f2 ON f2.id = ef.feed_id
+			JOIN categories c2 ON c2.id = f2.category_id
+		WHERE
+			ef.entry_id = e.id
+			AND f2.hide_globally IS FALSE
+			AND c2.hide_globally IS FALSE
+	)`)
+	e.displayVisibilityExpr = `(
+		SELECT ef.feed_id
+		FROM entry_feeds ef
+			JOIN feeds f2 ON f2.id = ef.feed_id
+			JOIN categories c2 ON c2.id = f2.category_id
+		WHERE
+			ef.entry_id = e.id
+			AND f2.hide_globally IS FALSE
+			AND c2.hide_globally IS FALSE
+		LIMIT 1
+	)`
 	return e
 }
 
@@ -291,6 +340,19 @@ func (e *EntryQueryBuilder) GetEntriesWithCount() (model.Entries, int, error) {
 	return entries, total, nil
 }
 
+// displayFeedSQL returns the SQL expression selecting the feed used to
+// describe each entry in the current view: the feed being browsed, a feed of
+// the category being browsed, a globally visible feed, or the canonical feed
+// (entries.feed_id) otherwise.
+func (e *EntryQueryBuilder) displayFeedSQL() string {
+	for _, expr := range []string{e.displayFeedExpr, e.displayCategoryExpr, e.displayVisibilityExpr} {
+		if expr != "" {
+			return "coalesce(" + expr + ", e.feed_id)"
+		}
+	}
+	return "e.feed_id"
+}
+
 // fetchEntries is the shared implementation for GetEntries and GetEntriesWithCount.
 // When withCount is true, count(*) OVER() is included in the SELECT and the total
 // count of matching rows is returned; otherwise the returned count is 0.
@@ -305,7 +367,7 @@ func (e *EntryQueryBuilder) fetchEntries(withCount bool) (model.Entries, int, er
 			` + countColumn + `
 			e.id,
 			e.user_id,
-			e.feed_id,
+			f.id AS feed_id,
 			e.hash,
 			e.published_at at time zone u.timezone,
 			e.title,
@@ -342,7 +404,7 @@ func (e *EntryQueryBuilder) fetchEntries(withCount bool) (model.Entries, int, er
 		FROM
 			entries e
 		INNER JOIN
-			feeds f ON f.id=e.feed_id
+			feeds f ON f.id=` + e.displayFeedSQL() + `
 		INNER JOIN
 			categories c ON c.id=f.category_id
 		LEFT JOIN
