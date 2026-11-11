@@ -18,7 +18,7 @@ import (
 func (h *handler) refreshFeed(w http.ResponseWriter, r *http.Request) {
 	feedID := request.RouteInt64Param(r, "feedID")
 	forceRefresh := request.QueryBoolParam(r, "forceRefresh", false)
-	if localizedError := feedHandler.RefreshFeed(h.store, request.UserID(r), feedID, forceRefresh); localizedError != nil {
+	if _, localizedError := feedHandler.RefreshFeed(h.store, request.UserID(r), feedID, forceRefresh); localizedError != nil {
 		slog.Warn("Unable to refresh feed",
 			slog.Int64("user_id", request.UserID(r)),
 			slog.Int64("feed_id", feedID),

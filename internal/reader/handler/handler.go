@@ -197,7 +197,14 @@ func CreateFeed(store *storage.Storage, userID int64, feedCreationRequest *model
 }
 
 // RefreshFeed refreshes a feed.
-func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool) *locale.LocalizedErrorWrapper {
+//
+// It returns the entry-level refresh counters alongside a possible localized
+// error. The counters are populated even when a non-fatal problem occurs: a
+// duplicated or invalid entry no longer aborts the whole feed, so callers can
+// reconcile what was actually written.
+func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool) (*model.EntryRefreshResult, *locale.LocalizedErrorWrapper) {
+	var refreshResult model.EntryRefreshResult
+
 	slog.Debug("Begin feed refresh process",
 		slog.Int64("user_id", userID),
 		slog.Int64("feed_id", feedID),
@@ -206,11 +213,11 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 
 	originalFeed, storeErr := store.FeedByID(userID, feedID)
 	if storeErr != nil {
-		return locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
+		return &refreshResult, locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
 	}
 
 	if originalFeed == nil {
-		return locale.NewLocalizedErrorWrapper(ErrFeedNotFound, "error.feed_not_found")
+		return &refreshResult, locale.NewLocalizedErrorWrapper(ErrFeedNotFound, "error.feed_not_found")
 	}
 
 	weeklyEntryCount := 0
@@ -218,7 +225,7 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 		var weeklyCountErr error
 		weeklyEntryCount, weeklyCountErr = store.WeeklyFeedEntryCount(userID, feedID)
 		if weeklyCountErr != nil {
-			return locale.NewLocalizedErrorWrapper(weeklyCountErr, "error.database_error", weeklyCountErr)
+			return &refreshResult, locale.NewLocalizedErrorWrapper(weeklyCountErr, "error.database_error", weeklyCountErr)
 		}
 	}
 
@@ -266,12 +273,12 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 			slog.String("feed_url", originalFeed.FeedURL),
 			slog.Any("error", localizedError.Error()),
 		)
-		return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
+		return &refreshResult, getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
 	}
 
 	if store.AnotherFeedURLExists(userID, originalFeed.ID, responseHandler.EffectiveURL()) {
 		localizedError := locale.NewLocalizedErrorWrapper(ErrDuplicatedFeed, "error.duplicated_feed")
-		return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
+		return &refreshResult, getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
 	}
 
 	if ignoreHTTPCache || responseHandler.IsModified(originalFeed.EtagHeader, originalFeed.LastModifiedHeader) {
@@ -285,7 +292,7 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 		responseBody, localizedError := responseHandler.ReadBody(config.Opts.HTTPClientMaxBodySize())
 		if localizedError != nil {
 			slog.Warn("Unable to fetch feed", slog.String("feed_url", originalFeed.FeedURL), slog.Any("error", localizedError.Error()))
-			return localizedError
+			return &refreshResult, localizedError
 		}
 
 		updatedFeed, parseErr := parser.ParseFeed(responseHandler.EffectiveURL(), bytes.NewReader(responseBody))
@@ -294,7 +301,7 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 			if errors.Is(parseErr, parser.ErrFeedFormatNotDetected) {
 				localizedError = locale.NewLocalizedErrorWrapper(parseErr, "error.feed_format_not_detected", parseErr)
 			}
-			return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
+			return &refreshResult, getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
 		}
 
 		// Use the RSS TTL value, or the Cache-Control or Expires HTTP headers if available.
@@ -325,10 +332,28 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 		// We skip updating existing entries if the feed has ignore_entry_updates enabled.
 		// Unless it is forced to refresh.
 		updateExistingEntries := forceRefresh || !originalFeed.IgnoreEntryUpdates
-		newEntries, storeErr := store.RefreshFeedEntries(originalFeed.UserID, originalFeed.ID, originalFeed.Entries, updateExistingEntries)
+		newEntries, entryResult, storeErr := store.RefreshFeedEntries(originalFeed.UserID, originalFeed.ID, originalFeed.Entries, updateExistingEntries)
 		if storeErr != nil {
 			localizedError := locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
-			return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
+			return &refreshResult, getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
+		}
+		refreshResult = *entryResult
+
+		slog.Info("Feed entries refreshed",
+			slog.Int64("user_id", userID),
+			slog.Int64("feed_id", feedID),
+			slog.String("feed_url", originalFeed.FeedURL),
+			slog.Int("entries_created", refreshResult.Created),
+			slog.Int("entries_updated", refreshResult.Updated),
+			slog.Int("entries_skipped", refreshResult.Skipped),
+			slog.Int("entries_failed", refreshResult.Failed),
+		)
+		if refreshResult.Failed > 0 {
+			slog.Warn("Some entries could not be persisted during this feed refresh",
+				slog.Int64("feed_id", feedID),
+				slog.String("feed_url", originalFeed.FeedURL),
+				slog.Int("entries_failed", refreshResult.Failed),
+			)
 		}
 
 		userIntegrations, intErr := store.Integration(userID)
@@ -369,8 +394,8 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 
 	if storeErr := store.UpdateFeed(originalFeed); storeErr != nil {
 		localizedError := locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
-		return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
+		return &refreshResult, getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
 	}
 
-	return nil
+	return &refreshResult, nil
 }

@@ -8,17 +8,50 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/model"
 
 	"github.com/lib/pq"
+	"github.com/lib/pq/pqerror"
 )
 
 // ErrEntryTombstoned is returned when an entry cannot be created because its
 // (feed_id, hash) pair has a tombstone recording a prior deletion.
 var ErrEntryTombstoned = errors.New("store: entry is tombstoned")
+
+// isUniqueViolation reports whether the given error is a PostgreSQL unique
+// constraint violation, typically raised when two entries carry the same
+// link/hash despite the pre-insert existence checks.
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == pqerror.UniqueViolation
+}
+
+// mergeEntriesByURL collapses entries sharing the same non-empty URL within a
+// single feed refresh. The first occurrence is kept, subsequent ones are
+// returned separately so the caller can count them as skipped instead of
+// letting the database reject them and rolling back the whole refresh.
+// Entries without a URL are never merged because they have no dedup key.
+func mergeEntriesByURL(entries model.Entries) (deduped model.Entries, duplicated model.Entries) {
+	seenURLs := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		entryURL := strings.TrimSpace(entry.URL)
+		if entryURL == "" {
+			deduped = append(deduped, entry)
+			continue
+		}
+		if _, exists := seenURLs[entryURL]; exists {
+			duplicated = append(duplicated, entry)
+			continue
+		}
+		seenURLs[entryURL] = struct{}{}
+		deduped = append(deduped, entry)
+	}
+	return deduped, duplicated
+}
 
 // CountAllEntries returns the number of entries for each status in the database.
 func (s *Storage) CountAllEntries() (map[string]int64, error) {
@@ -148,7 +181,9 @@ func (s *Storage) createEntry(tx *sql.Tx, entry *model.Entry) error {
 		return ErrEntryTombstoned
 	}
 	if err != nil {
-		return fmt.Errorf(`store: unable to create entry %q (feed #%d): %v`, entry.URL, entry.FeedID, err)
+		// Wrap with %w (not %v) so callers can still detect the underlying
+		// PostgreSQL error, for example a unique_violation on a duplicated link.
+		return fmt.Errorf(`store: unable to create entry %q (feed #%d): %w`, entry.URL, entry.FeedID, err)
 	}
 
 	for _, enclosure := range entry.Enclosures {
@@ -316,52 +351,146 @@ func (s *Storage) GetReadTime(feedID int64, entryHash string) int {
 	return result
 }
 
-// RefreshFeedEntries updates feed entries while refreshing a feed.
-func (s *Storage) RefreshFeedEntries(userID, feedID int64, entries model.Entries, updateExistingEntries bool) (newEntries model.Entries, err error) {
-	for _, entry := range entries {
+// RefreshFeedEntries persists feed entries while refreshing a feed.
+//
+// Each entry is processed in its own transaction, so a failure on a single
+// entry (for example a duplicate link rejected by a unique constraint) only
+// discards that entry: the rest of the refresh is preserved instead of being
+// rolled back as a whole. Entries sharing a URL inside this refresh are merged
+// beforehand, keeping the first occurrence and skipping the others.
+//
+// The returned EntryRefreshResult counts created, updated, skipped and failed
+// entries for reconciliation, while newEntries keeps the historical list of
+// freshly created entries so that downstream integrations can be notified.
+func (s *Storage) RefreshFeedEntries(userID, feedID int64, entries model.Entries, updateExistingEntries bool) (newEntries model.Entries, result *model.EntryRefreshResult, err error) {
+	result = &model.EntryRefreshResult{}
+
+	// Merge entries that share the same link inside this refresh so they can
+	// never reach the database as duplicates.
+	dedupedEntries, duplicatedEntries := mergeEntriesByURL(entries)
+	result.Skipped += len(duplicatedEntries)
+	for _, entry := range duplicatedEntries {
+		slog.Warn("Skipping entry duplicated by URL in the same feed refresh",
+			slog.Int64("user_id", userID),
+			slog.Int64("feed_id", feedID),
+			slog.String("entry_url", entry.URL),
+			slog.String("entry_hash", entry.Hash),
+		)
+	}
+
+	for _, entry := range dedupedEntries {
 		entry.UserID = userID
 		entry.FeedID = feedID
 
-		tx, err := s.db.Begin()
-		if err != nil {
-			return nil, fmt.Errorf(`store: unable to start transaction: %v`, err)
+		tx, txErr := s.db.Begin()
+		if txErr != nil {
+			// A failed Begin is a connection-level problem: continuing would
+			// only produce the same error for every remaining entry.
+			return newEntries, result, fmt.Errorf(`store: unable to start transaction: %v`, txErr)
 		}
 
-		entryExists, err := s.entryExists(tx, entry)
-		if err != nil {
+		entryExists, checkErr := s.entryExists(tx, entry)
+		if checkErr != nil {
+			result.Failed++
+			slog.Error("Unable to check if entry exists",
+				slog.Int64("feed_id", feedID),
+				slog.String("entry_url", entry.URL),
+				slog.Any("error", checkErr),
+			)
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				return nil, fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
+				slog.Error("Unable to rollback transaction", slog.Any("error", rollbackErr))
 			}
-			return nil, err
+			continue
 		}
 
-		if entryExists {
-			if updateExistingEntries {
-				err = s.updateEntry(tx, entry)
-			}
-		} else {
-			err = s.createEntry(tx, entry)
+		var opErr error
+		// outcome counts this entry once it has been committed successfully.
+		var outcome string
+		switch {
+		case entryExists && updateExistingEntries:
+			opErr = s.updateEntry(tx, entry)
+			outcome = "updated"
+		case entryExists:
+			// Entry already stored and the feed does not allow updates.
+			result.Skipped++
+			outcome = "skipped"
+		default:
+			opErr = s.createEntry(tx, entry)
+			outcome = "created"
 			switch {
-			case errors.Is(err, ErrEntryTombstoned):
-				err = nil
-			case err == nil:
+			case errors.Is(opErr, ErrEntryTombstoned):
+				// No row was inserted (the INSERT ... WHERE NOT EXISTS matched
+				// nothing), so the transaction is still valid and only needs a
+				// normal commit to close it.
+				result.Skipped++
+				opErr = nil
+				outcome = "skipped"
+			case isUniqueViolation(opErr):
+				// Another entry with the same link/hash is already stored.
+				// The failed statement has aborted this transaction, so it
+				// must be rolled back (committing would raise a secondary
+				// error). It is a duplicate, not a hard failure: skip it and
+				// keep processing the rest of the refresh.
+				result.Skipped++
+				slog.Warn("Skipping duplicate entry rejected by database constraint",
+					slog.Int64("feed_id", feedID),
+					slog.String("entry_url", entry.URL),
+					slog.String("entry_hash", entry.Hash),
+					slog.Any("error", opErr),
+				)
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					slog.Error("Unable to rollback duplicate entry transaction", slog.Any("error", rollbackErr))
+				}
+				continue
+			case opErr == nil:
 				newEntries = append(newEntries, entry)
 			}
 		}
 
-		if err != nil {
+		if opErr != nil {
+			result.Failed++
+			slog.Error("Unable to persist entry; rolling back this entry only",
+				slog.Int64("feed_id", feedID),
+				slog.String("entry_url", entry.URL),
+				slog.Any("error", opErr),
+			)
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				return nil, fmt.Errorf(`store: unable to rollback transaction: %v (rolled back due to: %v)`, rollbackErr, err)
+				slog.Error("Unable to rollback transaction", slog.Any("error", rollbackErr))
 			}
-			return nil, err
+			continue
 		}
 
-		if err := tx.Commit(); err != nil {
-			return nil, fmt.Errorf(`store: unable to commit transaction: %v`, err)
+		if commitErr := tx.Commit(); commitErr != nil {
+			if isUniqueViolation(commitErr) {
+				// A concurrent refresh committed the same entry in between:
+				// treat it as a skipped duplicate rather than a failure. The
+				// failed commit already ended the transaction.
+				result.Skipped++
+				slog.Warn("Duplicate entry detected at commit time",
+					slog.Int64("feed_id", feedID),
+					slog.String("entry_url", entry.URL),
+					slog.Any("error", commitErr),
+				)
+				continue
+			}
+			result.Failed++
+			slog.Error("Unable to commit entry transaction",
+				slog.Int64("feed_id", feedID),
+				slog.String("entry_url", entry.URL),
+				slog.Any("error", commitErr),
+			)
+			continue
+		}
+
+		switch outcome {
+		case "created":
+			result.Created++
+		case "updated":
+			result.Updated++
 		}
 	}
 
-	return newEntries, nil
+	return newEntries, result, nil
 }
 
 // ArchiveEntries deletes entries older than the given interval and records tombstones so they are not re-ingested.

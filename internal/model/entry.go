@@ -77,6 +77,31 @@ func (e *Entry) ShouldMarkAsReadOnView(user *User) bool {
 // Entries represents a list of entries.
 type Entries []*Entry
 
+// EntryRefreshResult reports the outcome of persisting the entries of a single
+// feed refresh. It is used for reconciliation: a refresh no longer fails the
+// whole feed when one entry is duplicated or invalid, so callers need the
+// per-bucket counters to know what actually happened.
+type EntryRefreshResult struct {
+	// Created is the number of new entries inserted into the database.
+	Created int
+	// Updated is the number of entries that already existed and were updated.
+	Updated int
+	// Skipped is the number of entries not written, either because another
+	// entry with the same URL was already processed in this refresh or the
+	// database rejected it as a duplicate (unique constraint violation),
+	// as well as tombstoned entries.
+	Skipped int
+	// Failed is the number of entries whose own transaction failed for any
+	// other reason. Other entries in the same refresh are unaffected.
+	Failed int
+}
+
+// Succeeded returns the number of entries that were effectively written
+// (created or updated).
+func (r EntryRefreshResult) Succeeded() int {
+	return r.Created + r.Updated
+}
+
 // EntriesStatusUpdateRequest represents a request to change entries status.
 type EntriesStatusUpdateRequest struct {
 	EntryIDs []int64 `json:"entry_ids"`

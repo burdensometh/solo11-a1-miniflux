@@ -44,7 +44,26 @@ func (w *worker) Run(c <-chan model.Job, shutdown <-chan struct{}, wg *sync.Wait
 		)
 
 		startTime := time.Now()
-		localizedError := feedHandler.RefreshFeed(w.store, job.UserID, job.FeedID, false)
+		refreshResult, localizedError := feedHandler.RefreshFeed(w.store, job.UserID, job.FeedID, false)
+
+		if localizedError != nil {
+			slog.Warn("Feed refresh failed",
+				slog.Int("worker_id", w.id),
+				slog.Int64("feed_id", job.FeedID),
+				slog.String("feed_url", job.FeedURL),
+				slog.Any("error", localizedError.Error()),
+			)
+		} else if refreshResult != nil && refreshResult.Failed > 0 {
+			slog.Warn("Feed refresh completed with failed entries",
+				slog.Int("worker_id", w.id),
+				slog.Int64("feed_id", job.FeedID),
+				slog.String("feed_url", job.FeedURL),
+				slog.Int("entries_created", refreshResult.Created),
+				slog.Int("entries_updated", refreshResult.Updated),
+				slog.Int("entries_skipped", refreshResult.Skipped),
+				slog.Int("entries_failed", refreshResult.Failed),
+			)
+		}
 
 		if config.Opts.HasMetricsCollector() {
 			status := metric.StatusSuccess
