@@ -1249,3 +1249,478 @@ func TestParseItemWithPlainTextContentContainingHTMLCharacters(t *testing.T) {
 		t.Errorf("Incorrect entry content, got: %q, want: %q", feed.Entries[0].Content, want)
 	}
 }
+
+func TestParseItemWithImage(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"content_html": "<p>Hello</p>",
+				"image": "https://example.org/image.jpg"
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 1 {
+		t.Fatalf("Incorrect number of entries, got: %d", len(feed.Entries))
+	}
+
+	if len(feed.Entries[0].Enclosures) != 1 {
+		t.Fatalf("Incorrect number of enclosures, got: %d", len(feed.Entries[0].Enclosures))
+	}
+
+	if feed.Entries[0].Enclosures[0].URL != "https://example.org/image.jpg" {
+		t.Errorf("Incorrect enclosure URL, got: %q", feed.Entries[0].Enclosures[0].URL)
+	}
+
+	if feed.Entries[0].Enclosures[0].MimeType != "image/*" {
+		t.Errorf("Incorrect enclosure type, got: %q", feed.Entries[0].Enclosures[0].MimeType)
+	}
+}
+
+func TestParseItemWithBannerImage(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"banner_image": "https://example.org/banner.jpg"
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries[0].Enclosures) != 1 {
+		t.Fatalf("Incorrect number of enclosures, got: %d", len(feed.Entries[0].Enclosures))
+	}
+
+	if feed.Entries[0].Enclosures[0].URL != "https://example.org/banner.jpg" {
+		t.Errorf("Incorrect enclosure URL, got: %q", feed.Entries[0].Enclosures[0].URL)
+	}
+
+	if feed.Entries[0].Enclosures[0].MimeType != "image/*" {
+		t.Errorf("Incorrect enclosure type, got: %q", feed.Entries[0].Enclosures[0].MimeType)
+	}
+}
+
+func TestParseItemWithImageAndBannerImage(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"image": "https://example.org/image.jpg",
+				"banner_image": "https://example.org/banner.jpg",
+				"attachments": [
+					{
+						"url": "https://example.org/audio.mp3",
+						"mime_type": "audio/mpeg",
+						"size_in_bytes": 12345
+					}
+				]
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []struct {
+		url      string
+		mimeType string
+	}{
+		{"https://example.org/image.jpg", "image/*"},
+		{"https://example.org/banner.jpg", "image/*"},
+		{"https://example.org/audio.mp3", "audio/mpeg"},
+	}
+
+	if len(feed.Entries[0].Enclosures) != len(expected) {
+		t.Fatalf("Incorrect number of enclosures, got: %d", len(feed.Entries[0].Enclosures))
+	}
+
+	for index, enclosure := range feed.Entries[0].Enclosures {
+		if enclosure.URL != expected[index].url {
+			t.Errorf("Incorrect enclosure URL, got %q instead of %q", enclosure.URL, expected[index].url)
+		}
+
+		if enclosure.MimeType != expected[index].mimeType {
+			t.Errorf("Incorrect enclosure type, got %q instead of %q", enclosure.MimeType, expected[index].mimeType)
+		}
+	}
+}
+
+func TestParseItemWithDuplicateImageAndBannerImage(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"image": "https://example.org/image.jpg",
+				"banner_image": "https://example.org/image.jpg"
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries[0].Enclosures) != 1 {
+		t.Fatalf("Incorrect number of enclosures, got: %d", len(feed.Entries[0].Enclosures))
+	}
+}
+
+func TestParseItemWithImageIdenticalToAttachment(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"image": "https://example.org/image.jpg",
+				"attachments": [
+					{
+						"url": "https://example.org/image.jpg",
+						"mime_type": "image/jpeg"
+					}
+				]
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries[0].Enclosures) != 1 {
+		t.Fatalf("Incorrect number of enclosures, got: %d", len(feed.Entries[0].Enclosures))
+	}
+}
+
+func TestParseItemWithRelativeImageURL(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"image": "  /images/photo.jpg  "
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries[0].Enclosures) != 1 {
+		t.Fatalf("Incorrect number of enclosures, got: %d", len(feed.Entries[0].Enclosures))
+	}
+
+	if feed.Entries[0].Enclosures[0].URL != "https://example.org/images/photo.jpg" {
+		t.Errorf("Incorrect enclosure URL, got: %q", feed.Entries[0].Enclosures[0].URL)
+	}
+}
+
+func TestParseItemWithBlankImageURL(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"image": "   ",
+				"banner_image": ""
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries[0].Enclosures) != 0 {
+		t.Errorf("Incorrect number of enclosures, got: %d", len(feed.Entries[0].Enclosures))
+	}
+}
+
+func TestParseItemWithNumericID(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": 2347259,
+				"url": "https://example.org/2347259",
+				"content_text": "Cats are neat."
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 1 {
+		t.Fatalf("Incorrect number of entries, got: %d", len(feed.Entries))
+	}
+
+	expected := sha256.Sum256([]byte("2347259"))
+	if feed.Entries[0].Hash != hex.EncodeToString(expected[:]) {
+		t.Errorf("Incorrect entry hash, got: %s", feed.Entries[0].Hash)
+	}
+}
+
+func TestParseFeedSkipsInvalidItem(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/first",
+				"title": "First item"
+			},
+			{
+				"id": {"unexpected": "object"},
+				"url": "https://example.org/broken",
+				"title": "Broken item"
+			},
+			{
+				"id": "3",
+				"url": "https://example.org/third",
+				"title": "Third item"
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 2 {
+		t.Fatalf("Incorrect number of entries, got: %d", len(feed.Entries))
+	}
+
+	if feed.Entries[0].URL != "https://example.org/first" {
+		t.Errorf("Incorrect entry URL, got: %s", feed.Entries[0].URL)
+	}
+
+	if feed.Entries[1].URL != "https://example.org/third" {
+		t.Errorf("Incorrect entry URL, got: %s", feed.Entries[1].URL)
+	}
+}
+
+func TestParseFeedWithItemsAsSingleObject(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": {
+			"id": "1",
+			"url": "https://example.org/item",
+			"title": "Single item"
+		}
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 1 {
+		t.Fatalf("Incorrect number of entries, got: %d", len(feed.Entries))
+	}
+
+	if feed.Entries[0].Title != "Single item" {
+		t.Errorf("Incorrect entry title, got: %s", feed.Entries[0].Title)
+	}
+}
+
+func TestParseFeedWithInvalidItemsField(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": "not an array"
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 0 {
+		t.Errorf("Incorrect number of entries, got: %d", len(feed.Entries))
+	}
+}
+
+func TestParseItemWithStringAuthor(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"author": "Jane Doe"
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 1 {
+		t.Fatalf("Incorrect number of entries, got: %d", len(feed.Entries))
+	}
+
+	if feed.Entries[0].Author != "Jane Doe" {
+		t.Errorf("Incorrect entry author, got: %s", feed.Entries[0].Author)
+	}
+}
+
+func TestParseFeedWithStringAuthor(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"author": "Jane Doe",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item"
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 1 {
+		t.Fatalf("Incorrect number of entries, got: %d", len(feed.Entries))
+	}
+
+	if feed.Entries[0].Author != "Jane Doe" {
+		t.Errorf("Incorrect entry author, got: %s", feed.Entries[0].Author)
+	}
+}
+
+func TestParseItemWithMixedAuthorsArray(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"authors": [
+					"Jane Doe",
+					{"name": "John Doe"},
+					123
+				]
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 1 {
+		t.Fatalf("Incorrect number of entries, got: %d", len(feed.Entries))
+	}
+
+	if feed.Entries[0].Author != "Jane Doe, John Doe" {
+		t.Errorf("Incorrect entry author, got: %s", feed.Entries[0].Author)
+	}
+}
+
+func TestParseItemWithInvalidAuthorType(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"authors": [{"name": "Feed Author"}],
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"author": 123
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 1 {
+		t.Fatalf("Incorrect number of entries, got: %d", len(feed.Entries))
+	}
+
+	if feed.Entries[0].Author != "Feed Author" {
+		t.Errorf("Incorrect entry author, got: %s", feed.Entries[0].Author)
+	}
+}

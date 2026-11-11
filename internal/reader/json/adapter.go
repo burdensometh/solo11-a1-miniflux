@@ -156,6 +156,35 @@ func (j *JSONAdapter) BuildFeed(baseURL string) *model.Feed {
 
 		entry.Author = strings.Join(authorNames, ", ")
 
+		// Populate the entry enclosures with the item images so they are
+		// displayed like the images of RSS/Atom entries.
+		duplicateEnclosureURLs := make(map[string]bool, len(item.Attachments)+2)
+		for _, imageURL := range []string{item.ImageURL, item.BannerImageURL} {
+			if imageURL = strings.TrimSpace(imageURL); imageURL == "" {
+				continue
+			}
+
+			absoluteImageURL, err := urllib.ResolveToAbsoluteURL(feed.SiteURL, imageURL)
+			if err != nil {
+				slog.Debug("Unable to build absolute URL for image",
+					slog.String("url", imageURL),
+					slog.String("site_url", feed.SiteURL),
+					slog.Any("error", err),
+				)
+				continue
+			}
+
+			if duplicateEnclosureURLs[absoluteImageURL] {
+				continue
+			}
+			duplicateEnclosureURLs[absoluteImageURL] = true
+
+			entry.Enclosures = append(entry.Enclosures, &model.Enclosure{
+				URL:      absoluteImageURL,
+				MimeType: "image/*",
+			})
+		}
+
 		// Populate the entry enclosures.
 		for _, attachment := range item.Attachments {
 			attachmentURL := strings.TrimSpace(attachment.URL)
@@ -173,6 +202,11 @@ func (j *JSONAdapter) BuildFeed(baseURL string) *model.Feed {
 				continue
 			}
 
+			if duplicateEnclosureURLs[absoluteAttachmentURL] {
+				continue
+			}
+			duplicateEnclosureURLs[absoluteAttachmentURL] = true
+
 			entry.Enclosures = append(entry.Enclosures, &model.Enclosure{
 				URL:      absoluteAttachmentURL,
 				MimeType: attachment.MimeType,
@@ -185,7 +219,7 @@ func (j *JSONAdapter) BuildFeed(baseURL string) *model.Feed {
 		entry.Tags = appendSorted(entry.Tags, strings.TrimSpace, item.Tags...)
 
 		// Generate a hash for the entry.
-		for _, value := range []string{item.ID, item.URL, item.ExternalURL, item.ContentText + item.ContentHTML + item.Summary} {
+		for _, value := range []string{string(item.ID), item.URL, item.ExternalURL, item.ContentText + item.ContentHTML + item.Summary} {
 			value = strings.TrimSpace(value)
 			if value != "" {
 				entry.Hash = crypto.SHA256(value)

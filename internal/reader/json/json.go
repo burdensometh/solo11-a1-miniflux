@@ -5,6 +5,8 @@ package json // import "miniflux.app/v2/internal/reader/json"
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -50,7 +52,7 @@ type JSONFeed struct {
 	Expired bool `json:"expired"`
 
 	// Items is an array, each representing an individual item in the feed.
-	Items []JSONItem `json:"items"`
+	Items JSONItems `json:"items"`
 
 	// Hubs  describes endpoints that can be used to subscribe to real-time notifications from the publisher of this feed.
 	Hubs []JSONHub `json:"hubs"`
@@ -67,12 +69,34 @@ type JSONAuthor struct {
 	AvatarURL string `json:"avatar"`
 }
 
+// UnmarshalJSON accepts either an author object or a plain string.
+// Some feeds incorrectly use a string like "author": "John Doe"; we accept
+// it to avoid losing the author. Invalid values are ignored silently so a
+// malformed author never fails the enclosing item or feed.
+func (a *JSONAuthor) UnmarshalJSON(data []byte) error {
+	// Use an alias to avoid infinite recursion.
+	type jsonAuthorAlias JSONAuthor
+	var author jsonAuthorAlias
+	if err := json.Unmarshal(data, &author); err == nil {
+		*a = JSONAuthor(author)
+		return nil
+	}
+
+	var name string
+	if err := json.Unmarshal(data, &name); err == nil {
+		*a = JSONAuthor{Name: name}
+	}
+
+	return nil
+}
+
 func (a JSONAuthor) name() string {
 	return strings.TrimSpace(a.Name)
 }
 
 // JSONAuthors unmarshals either an array or a single author object.
 // Some feeds incorrectly use an object for "authors"; we accept it to avoid failing the whole feed.
+// Invalid author entries are skipped instead of failing the whole feed.
 type JSONAuthors []JSONAuthor
 
 func (a *JSONAuthors) UnmarshalJSON(data []byte) error {
@@ -103,7 +127,7 @@ type JSONHub struct {
 type JSONItem struct {
 	// Unique identifier for the item.
 	// Ideally, the id is the full URL of the resource described by the item, since URLs make great unique identifiers.
-	ID string `json:"id"`
+	ID JSONIdentifier `json:"id"`
 
 	// URL of the resource described by the item.
 	URL string `json:"url"`
@@ -170,4 +194,60 @@ type JSONAttachment struct {
 
 	// Duration of the attachment in seconds.
 	Duration int `json:"duration_in_seconds"`
+}
+
+// JSONItems unmarshals the feed items tolerantly: an item that cannot be
+// decoded is skipped instead of failing the whole feed.
+type JSONItems []JSONItem
+
+func (items *JSONItems) UnmarshalJSON(data []byte) error {
+	var rawItems []json.RawMessage
+	if err := json.Unmarshal(data, &rawItems); err != nil {
+		// Some feeds incorrectly use a single object for "items".
+		var item JSONItem
+		if err := json.Unmarshal(data, &item); err == nil {
+			*items = JSONItems{item}
+		}
+
+		// Ignore invalid formats silently; the rest of the feed is still usable.
+		return nil
+	}
+
+	parsedItems := make([]JSONItem, 0, len(rawItems))
+	for index, rawItem := range rawItems {
+		var item JSONItem
+		if err := json.Unmarshal(rawItem, &item); err != nil {
+			slog.Warn("Skipping invalid JSON feed item",
+				slog.Int("item_index", index),
+				slog.Any("error", err),
+			)
+			continue
+		}
+
+		parsedItems = append(parsedItems, item)
+	}
+
+	*items = parsedItems
+	return nil
+}
+
+// JSONIdentifier unmarshals an item identifier. The JSON Feed specification
+// defines the id as a string, but some feeds incorrectly use a number; we
+// accept both to avoid dropping the item.
+type JSONIdentifier string
+
+func (id *JSONIdentifier) UnmarshalJSON(data []byte) error {
+	var identifier string
+	if err := json.Unmarshal(data, &identifier); err == nil {
+		*id = JSONIdentifier(identifier)
+		return nil
+	}
+
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err == nil {
+		*id = JSONIdentifier(number.String())
+		return nil
+	}
+
+	return fmt.Errorf("json: invalid item identifier: %s", string(data))
 }
