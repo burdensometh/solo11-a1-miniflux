@@ -18,6 +18,15 @@
     <label for="form-description">{{ t "form.api_key.label.description" }}</label>
     <input type="text" name="description" id="form-description" value="{{ .form.Description }}" spellcheck="false" required autofocus>
 
+    <fieldset>
+        <legend>{{ t "form.api_key.label.scopes" }}</legend>
+        <label><input type="radio" name="access_type" value="full" {{ if not .form.IsScoped }}checked{{ end }}> {{ t "form.api_key.access_full" }}</label>
+        <label><input type="radio" name="access_type" value="scoped" {{ if .form.IsScoped }}checked{{ end }}> {{ t "form.api_key.access_scoped" }}</label>
+        {{ range .scopes }}
+        <label><input type="checkbox" name="scopes" value="{{ . }}" {{ if $.form.HasScope . }}checked{{ end }}> {{ t (printf "page.api_keys.scope.%s" .) }}</label>
+        {{ end }}
+    </fieldset>
+
     <div class="buttons">
         <button type="submit" class="button button-primary" data-label-loading="{{ t "form.submit.saving" }}">{{ t "action.save" }}</button> {{ t "action.or" }} <a href="{{ routePath "/keys" }}">{{ t "action.cancel" }}</a>
     </div>

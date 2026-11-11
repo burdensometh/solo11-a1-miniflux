@@ -295,8 +295,21 @@ func (c *Client) CreateAPIKey(description string) (*APIKey, error) {
 
 // CreateAPIKeyContext creates a new API key for the authenticated user.
 func (c *Client) CreateAPIKeyContext(ctx context.Context, description string) (*APIKey, error) {
+	return c.createAPIKey(ctx, description, nil)
+}
+
+// CreateAPIKeyWithScopes creates a new API key restricted to the given scopes
+// for the authenticated user.
+func (c *Client) CreateAPIKeyWithScopes(description string, scopes []string) (*APIKey, error) {
+	ctx, cancel := withDefaultTimeout()
+	defer cancel()
+	return c.createAPIKey(ctx, description, scopes)
+}
+
+func (c *Client) createAPIKey(ctx context.Context, description string, scopes []string) (*APIKey, error) {
 	body, err := c.request.Post(ctx, "/v1/api-keys", &APIKeyCreationRequest{
 		Description: description,
+		Scopes:      scopes,
 	})
 	if err != nil {
 		return nil, err

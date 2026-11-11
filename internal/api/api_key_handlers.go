@@ -29,7 +29,15 @@ func (h *handler) createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiKey, err := h.store.CreateAPIKey(userID, apiKeyCreationRequest.Description)
+	// A scoped API key cannot create another key with more permissions than
+	// its own. An empty scope list means full access, so only unrestricted
+	// keys can create unrestricted keys.
+	if creatorScopes := request.APIKeyScopes(r); creatorScopes != nil && !apiKeyCreationRequest.Scopes.IsSubsetOf(creatorScopes) {
+		response.JSONForbiddenWithError(w, r, errors.New("cannot create an API key with scopes beyond the ones of the API key used for authentication"))
+		return
+	}
+
+	apiKey, err := h.store.CreateAPIKey(userID, apiKeyCreationRequest.Description, apiKeyCreationRequest.Scopes)
 	if err != nil {
 		response.JSONServerError(w, r, err)
 		return

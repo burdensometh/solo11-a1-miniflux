@@ -8,6 +8,7 @@ import (
 
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/locale"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/ui/form"
 	"miniflux.app/v2/internal/ui/view"
@@ -26,9 +27,26 @@ func (h *handler) saveAPIKey(w http.ResponseWriter, r *http.Request) {
 		Description: apiKeyForm.Description,
 	}
 
-	if validationErr := validator.ValidateAPIKeyCreation(h.store, user.ID, apiKeyCreationRequest); validationErr != nil {
+	// An empty scope list means full access: it must be an explicit choice,
+	// never the result of selecting no scope in restricted mode.
+	var accessTypeErr *locale.LocalizedError
+	if apiKeyForm.IsScoped() {
+		if len(apiKeyForm.Scopes) == 0 {
+			accessTypeErr = locale.NewLocalizedError("error.api_key_no_scope_selected")
+		} else {
+			apiKeyCreationRequest.Scopes = apiKeyForm.Scopes
+		}
+	}
+
+	validationErr := accessTypeErr
+	if validationErr == nil {
+		validationErr = validator.ValidateAPIKeyCreation(h.store, user.ID, apiKeyCreationRequest)
+	}
+
+	if validationErr != nil {
 		view := view.New(h.tpl, r)
 		view.Set("form", apiKeyForm)
+		view.Set("scopes", model.ValidAPIKeyScopes())
 		view.Set("menu", "settings")
 		view.Set("user", user)
 		navMetadata, _ := h.store.GetNavMetadata(user.ID)
@@ -39,7 +57,7 @@ func (h *handler) saveAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err = h.store.CreateAPIKey(user.ID, apiKeyCreationRequest.Description); err != nil {
+	if _, err = h.store.CreateAPIKey(user.ID, apiKeyCreationRequest.Description, apiKeyCreationRequest.Scopes); err != nil {
 		response.HTMLServerError(w, r, err)
 		return
 	}

@@ -5,6 +5,7 @@ package api // import "miniflux.app/v2/internal/api"
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -67,6 +68,23 @@ func (m *middleware) validateAPIKeyAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		apiKey, err := m.store.APIKeyByToken(token)
+		if err != nil {
+			response.JSONServerError(w, r, err)
+			return
+		}
+
+		if apiKey == nil {
+			slog.Warn("[API] No API key found for the provided token",
+				slog.Bool("authentication_failed", true),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.String("request_uri", r.RequestURI),
+			)
+			response.JSONUnauthorized(w, r)
+			return
+		}
+
 		slog.Info("[API] User authenticated successfully with the API Token Authentication",
 			slog.Bool("authentication_successful", true),
 			slog.String("client_ip", clientIP),
@@ -83,9 +101,34 @@ func (m *middleware) validateAPIKeyAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, request.UserTimezoneContextKey, user.Timezone)
 		ctx = context.WithValue(ctx, request.IsAdminUserContextKey, user.IsAdmin)
 		ctx = context.WithValue(ctx, request.IsAuthenticatedContextKey, true)
+		ctx = context.WithValue(ctx, request.APIKeyScopesContextKey, apiKey.Scopes)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// requireScope wraps a handler so that requests authenticated with a scoped
+// API key are rejected with a 403 error when the key lacks the given scope.
+// Requests authenticated any other way (Basic auth) and legacy unrestricted
+// API keys (empty scope list) are always allowed.
+func requireScope(scope string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scopes := request.APIKeyScopes(r)
+		if scopes != nil && !scopes.Allows(scope) {
+			slog.Warn("[API] Blocking request because the API key is missing the required scope",
+				slog.Bool("authorization_failed", true),
+				slog.String("required_scope", scope),
+				slog.Any("api_key_scopes", scopes),
+				slog.String("client_ip", request.ClientIP(r)),
+				slog.String("user_agent", r.UserAgent()),
+				slog.String("request_uri", r.RequestURI),
+			)
+			response.JSONForbiddenWithError(w, r, fmt.Errorf("the API key is missing the required scope: %s", scope))
+			return
+		}
+
+		next(w, r)
+	}
 }
 
 func (m *middleware) validateBasicAuth(next http.Handler) http.Handler {

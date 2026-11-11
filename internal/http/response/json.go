@@ -118,7 +118,13 @@ func JSONUnauthorized(w http.ResponseWriter, r *http.Request) {
 
 // JSONForbidden sends a forbidden error to the client.
 func JSONForbidden(w http.ResponseWriter, r *http.Request) {
+	JSONForbiddenWithError(w, r, errors.New("access forbidden"))
+}
+
+// JSONForbiddenWithError sends a forbidden error with a specific message to the client.
+func JSONForbiddenWithError(w http.ResponseWriter, r *http.Request, err error) {
 	slog.Warn(http.StatusText(http.StatusForbidden),
+		slog.Any("error", err),
 		slog.String("client_ip", request.ClientIP(r)),
 		slog.Group("request",
 			slog.String("method", r.Method),
@@ -133,7 +139,7 @@ func JSONForbidden(w http.ResponseWriter, r *http.Request) {
 	NewBuilder(w, r).
 		WithStatus(http.StatusForbidden).
 		WithHeader("Content-Type", jsonContentTypeHeader).
-		WithBodyAsBytes(generateJSONError(errors.New("access forbidden"))).
+		WithBodyAsBytes(generateJSONError(err)).
 		Write()
 }
 

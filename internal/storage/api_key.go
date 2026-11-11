@@ -4,8 +4,11 @@
 package storage // import "miniflux.app/v2/internal/storage"
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/lib/pq"
 
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/model"
@@ -32,11 +35,43 @@ func (s *Storage) SetAPIKeyUsedTimestamp(userID int64, token string) error {
 	return nil
 }
 
+// APIKeyByToken returns the API Key associated with the given token, or nil
+// when the token does not exist.
+func (s *Storage) APIKeyByToken(token string) (*model.APIKey, error) {
+	query := `
+		SELECT
+			id, user_id, token, description, scopes, last_used_at, created_at
+		FROM
+			api_keys
+		WHERE
+			token=$1
+	`
+	var apiKey model.APIKey
+	var scopes []string
+	err := s.db.QueryRow(query, token).Scan(
+		&apiKey.ID,
+		&apiKey.UserID,
+		&apiKey.Token,
+		&apiKey.Description,
+		pq.Array(&scopes),
+		&apiKey.LastUsedAt,
+		&apiKey.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf(`store: unable to fetch API Key: %v`, err)
+	}
+
+	apiKey.Scopes = model.APIKeyScopes(scopes)
+	return &apiKey, nil
+}
+
 // APIKeys returns all API Keys that belongs to the given user.
 func (s *Storage) APIKeys(userID int64) (model.APIKeys, error) {
 	query := `
 		SELECT
-			id, user_id, token, description, last_used_at, created_at
+			id, user_id, token, description, scopes, last_used_at, created_at
 		FROM
 			api_keys
 		WHERE
@@ -52,44 +87,55 @@ func (s *Storage) APIKeys(userID int64) (model.APIKeys, error) {
 	apiKeys := make(model.APIKeys, 0)
 	for rows.Next() {
 		var apiKey model.APIKey
+		var scopes []string
 		if err := rows.Scan(
 			&apiKey.ID,
 			&apiKey.UserID,
 			&apiKey.Token,
 			&apiKey.Description,
+			pq.Array(&scopes),
 			&apiKey.LastUsedAt,
 			&apiKey.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf(`store: unable to fetch API Key row: %v`, err)
 		}
 
+		apiKey.Scopes = model.APIKeyScopes(scopes)
 		apiKeys = append(apiKeys, apiKey)
 	}
 
 	return apiKeys, nil
 }
 
-// CreateAPIKey inserts a new API key.
-func (s *Storage) CreateAPIKey(userID int64, description string) (*model.APIKey, error) {
+// CreateAPIKey inserts a new API key. An empty scopes list creates a key with
+// full access.
+func (s *Storage) CreateAPIKey(userID int64, description string, scopes model.APIKeyScopes) (*model.APIKey, error) {
+	if scopes == nil {
+		scopes = model.APIKeyScopes{}
+	}
+
 	query := `
 		INSERT INTO api_keys
-			(user_id, token, description)
+			(user_id, token, description, scopes)
 		VALUES
-			($1, $2, $3)
+			($1, $2, $3, $4)
 		RETURNING
-			id, user_id, token, description, last_used_at, created_at
+			id, user_id, token, description, scopes, last_used_at, created_at
 	`
 	var apiKey model.APIKey
+	var returnedScopes []string
 	err := s.db.QueryRow(
 		query,
 		userID,
 		crypto.GenerateRandomStringHex(32),
 		description,
+		pq.Array([]string(scopes)),
 	).Scan(
 		&apiKey.ID,
 		&apiKey.UserID,
 		&apiKey.Token,
 		&apiKey.Description,
+		pq.Array(&returnedScopes),
 		&apiKey.LastUsedAt,
 		&apiKey.CreatedAt,
 	)
@@ -97,6 +143,7 @@ func (s *Storage) CreateAPIKey(userID int64, description string) (*model.APIKey,
 		return nil, fmt.Errorf(`store: unable to create API Key: %v`, err)
 	}
 
+	apiKey.Scopes = model.APIKeyScopes(returnedScopes)
 	return &apiKey, nil
 }
 

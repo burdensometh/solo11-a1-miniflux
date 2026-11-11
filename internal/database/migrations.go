@@ -1590,4 +1590,10 @@ var migrations = [...]func(tx *sql.Tx) error{
 		_, err = tx.Exec(sql)
 		return err
 	},
+	func(tx *sql.Tx) (err error) {
+		// An empty scopes array means the API key has full access, which
+		// preserves the behavior of existing keys.
+		_, err = tx.Exec(`ALTER TABLE api_keys ADD COLUMN scopes text[] not null default '{}'`)
+		return err
+	},
 }

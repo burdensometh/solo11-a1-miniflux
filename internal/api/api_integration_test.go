@@ -890,6 +890,95 @@ func TestAPIKeysEndpoint(t *testing.T) {
 	}
 }
 
+func TestScopedAPIKeysEndpoint(t *testing.T) {
+	t.Parallel()
+
+	testConfig := newIntegrationTestConfig()
+	if !testConfig.isConfigured() {
+		t.Skip(skipIntegrationTestsMessage)
+	}
+
+	adminClient := miniflux.NewClient(testConfig.testBaseURL, testConfig.testAdminUsername, testConfig.testAdminPassword)
+	regularTestUser, err := adminClient.CreateUser(testConfig.genRandomUsername(), testConfig.testRegularPassword, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer adminClient.DeleteUser(regularTestUser.ID)
+
+	regularUserClient := miniflux.NewClient(testConfig.testBaseURL, regularTestUser.Username, testConfig.testRegularPassword)
+
+	// Create a read-only API key.
+	scopedKey, err := regularUserClient.CreateAPIKeyWithScopes("Read Only Key", []string{"entries:read"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer regularUserClient.DeleteAPIKey(scopedKey.ID)
+
+	if len(scopedKey.Scopes) != 1 || scopedKey.Scopes[0] != "entries:read" {
+		t.Fatalf(`Expected the API key scopes to be ["entries:read"], got %v`, scopedKey.Scopes)
+	}
+
+	scopedClient := miniflux.NewClient(testConfig.testBaseURL, scopedKey.Token)
+
+	// Endpoints that do not require a scope keep working.
+	if _, err := scopedClient.Me(); err != nil {
+		t.Fatalf(`Expected /v1/me to be accessible with a scoped key, got %v`, err)
+	}
+
+	// The key has the entries:read scope: reading entries is allowed.
+	if _, err := scopedClient.Entries(&miniflux.Filter{}); err != nil {
+		t.Fatalf(`Expected reading entries to be allowed, got %v`, err)
+	}
+
+	// Audit scenario: a read-only key must not be able to change settings.
+	theme := "system_serif"
+	if _, err := scopedClient.UpdateUser(regularTestUser.ID, &miniflux.UserModificationRequest{Theme: &theme}); !errors.Is(err, miniflux.ErrForbidden) {
+		t.Fatalf(`Expected a forbidden error when changing settings with a read-only key, got %v`, err)
+	}
+
+	// Listing users requires the users:read scope.
+	if _, err := scopedClient.Users(); !errors.Is(err, miniflux.ErrForbidden) {
+		t.Fatalf(`Expected a forbidden error when listing users with a read-only key, got %v`, err)
+	}
+
+	// Creating other API keys requires the apikeys:write scope.
+	if _, err := scopedClient.CreateAPIKey("Escalation Attempt"); !errors.Is(err, miniflux.ErrForbidden) {
+		t.Fatalf(`Expected a forbidden error when creating an API key without the apikeys:write scope, got %v`, err)
+	}
+
+	// A key allowed to manage API keys cannot create a key with more
+	// permissions than its own (no privilege escalation to full access).
+	keyManagerKey, err := regularUserClient.CreateAPIKeyWithScopes("Key Manager", []string{"apikeys:read", "apikeys:write"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer regularUserClient.DeleteAPIKey(keyManagerKey.ID)
+
+	keyManagerClient := miniflux.NewClient(testConfig.testBaseURL, keyManagerKey.Token)
+	if _, err := keyManagerClient.CreateAPIKey("Full Access Escalation"); !errors.Is(err, miniflux.ErrForbidden) {
+		t.Fatalf(`Expected a forbidden error when a scoped key creates an unrestricted key, got %v`, err)
+	}
+	if _, err := keyManagerClient.CreateAPIKeyWithScopes("Entries Escalation", []string{"entries:read"}); !errors.Is(err, miniflux.ErrForbidden) {
+		t.Fatalf(`Expected a forbidden error when a scoped key creates a key with scopes it does not have, got %v`, err)
+	}
+
+	// Keys created without scopes keep their full access (legacy behavior).
+	fullAccessKey, err := regularUserClient.CreateAPIKey("Full Access Key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer regularUserClient.DeleteAPIKey(fullAccessKey.ID)
+
+	if len(fullAccessKey.Scopes) != 0 {
+		t.Fatalf(`Expected an unrestricted API key to have no scopes, got %v`, fullAccessKey.Scopes)
+	}
+
+	fullAccessClient := miniflux.NewClient(testConfig.testBaseURL, fullAccessKey.Token)
+	if _, err := fullAccessClient.UpdateUser(regularTestUser.ID, &miniflux.UserModificationRequest{Theme: &theme}); err != nil {
+		t.Fatalf(`Expected an unrestricted key to change settings, got %v`, err)
+	}
+}
+
 func TestMarkUserAsReadEndpoint(t *testing.T) {
 	t.Parallel()
 

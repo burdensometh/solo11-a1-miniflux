@@ -8,6 +8,7 @@ import (
 
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/ui/form"
 	"miniflux.app/v2/internal/ui/view"
 )
@@ -21,6 +22,7 @@ func (h *handler) showCreateAPIKeyPage(w http.ResponseWriter, r *http.Request) {
 
 	view := view.New(h.tpl, r)
 	view.Set("form", &form.APIKeyForm{})
+	view.Set("scopes", model.ValidAPIKeyScopes())
 	view.Set("menu", "settings")
 	view.Set("user", user)
 	navMetadata, _ := h.store.GetNavMetadata(user.ID)

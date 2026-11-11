@@ -20,6 +20,16 @@
         <td>{{ .Token }}</td>
     </tr>
     <tr>
+        <th>{{ t "page.api_keys.table.scopes" }}</th>
+        <td>
+            {{ if .Scopes }}
+                {{ range $index, $scope := .Scopes }}{{ if $index }}, {{ end }}{{ t (printf "page.api_keys.scope.%s" $scope) }}{{ end }}
+            {{ else }}
+                {{ t "page.api_keys.full_access" }}
+            {{ end }}
+        </td>
+    </tr>
+    <tr>
         <th>{{ t "page.api_keys.table.last_used_at" }}</th>
         <td>
             {{ if .LastUsedAt }}

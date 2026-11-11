@@ -22,7 +22,20 @@ const (
 	WebSessionContextKey
 	ClientIPContextKey
 	GoogleReaderTokenKey
+	APIKeyScopesContextKey
 )
+
+// APIKeyScopes returns the scopes of the API key used to authenticate the
+// request. It returns nil when the request was authenticated another way
+// (e.g. Basic HTTP authentication or a web session).
+func APIKeyScopes(r *http.Request) model.APIKeyScopes {
+	if v := r.Context().Value(APIKeyScopesContextKey); v != nil {
+		if value, valid := v.(model.APIKeyScopes); valid {
+			return value
+		}
+	}
+	return nil
+}
 
 // WebSession returns the current web session from the request context, if present.
 func WebSession(r *http.Request) *model.WebSession {

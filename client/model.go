@@ -369,6 +369,7 @@ type APIKey struct {
 	UserID      int64      `json:"user_id"`
 	Token       string     `json:"token"`
 	Description string     `json:"description"`
+	Scopes      []string   `json:"scopes"`
 	LastUsedAt  *time.Time `json:"last_used_at"`
 	CreatedAt   time.Time  `json:"created_at"`
 }
@@ -377,8 +378,10 @@ type APIKey struct {
 type APIKeys []*APIKey
 
 // APIKeyCreationRequest represents the request to create an API key.
+// An empty Scopes list creates a key with full access.
 type APIKeyCreationRequest struct {
-	Description string `json:"description"`
+	Description string   `json:"description"`
+	Scopes      []string `json:"scopes,omitempty"`
 }
 
 // SetOptionalField returns a pointer to the given value so optional request fields can be marked as set.
