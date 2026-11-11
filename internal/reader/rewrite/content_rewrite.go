@@ -5,9 +5,7 @@ package rewrite // import "miniflux.app/v2/internal/reader/rewrite"
 
 import (
 	"log/slog"
-	"strconv"
 	"strings"
-	"text/scanner"
 
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/urllib"
@@ -166,46 +164,6 @@ func ApplyContentRewriteRules(entry *model.Entry, customRewriteRules string) {
 
 	for _, rule := range rules {
 		rule.applyRule(entry.URL, entry)
-	}
-}
-
-func parseRules(rulesText string) (rules []rule, errs []RuleError) {
-	scan := scanner.Scanner{Mode: scanner.ScanIdents | scanner.ScanStrings}
-	scan.Init(strings.NewReader(rulesText))
-	scan.Error = func(s *scanner.Scanner, msg string) {
-		errs = append(errs, RuleError{Pos: s.Pos(), Kind: RuleErrLexical, Message: msg})
-	}
-
-	for {
-		switch scan.Scan() {
-		case scanner.Ident:
-			rules = append(rules, rule{name: scan.TokenText()})
-		case scanner.String:
-			if l := len(rules) - 1; l >= 0 {
-				text, err := strconv.Unquote(scan.TokenText())
-				if err != nil {
-					errs = append(errs, RuleError{
-						Pos:     scan.Position,
-						Kind:    RuleErrUnquote,
-						Rule:    rules[l].name,
-						Token:   scan.TokenText(),
-						Message: err.Error(),
-					})
-					continue
-				}
-				rules[l].args = append(rules[l].args, text)
-			} else {
-				errs = append(errs, RuleError{
-					Pos:     scan.Position,
-					Kind:    RuleErrOrphanArg,
-					Token:   scan.TokenText(),
-					Message: "quoted string before any rule name",
-				})
-			}
-		case scanner.EOF:
-			errs = append(errs, validateParsedRules(rules)...)
-			return rules, errs
-		}
 	}
 }
 

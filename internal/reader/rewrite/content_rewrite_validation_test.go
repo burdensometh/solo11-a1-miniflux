@@ -119,3 +119,66 @@ func TestParseRulesWellFormed(t *testing.T) {
 		t.Errorf(`Unexpected second rule: %v`, rules[1])
 	}
 }
+
+// TestTokenizerMatchesLegacyScanner proves the hand-written tokenizer accepts
+// the same identifier/string token sequences as the previous text/scanner
+// based parser (Go-escaping string mode), so the refactor changes no grammar.
+func TestTokenizerMatchesLegacyScanner(t *testing.T) {
+	corpus := []string{
+		``,
+		`nl2br`,
+		`add_dynamic_image,replace("article/(.*).svg"|"article/$1.png"),remove(".spam, .ads:not(.keep)")`,
+		`replace("\d+"|"x")`,
+		`replace("["|"x")`,
+		`remove("div[")`,
+		`base64_decode(".base64")`,
+		`remove("img[src^='/assets/categories/']")`,
+		`remove("h1.title-detail, table[border=\"0\"]")`,
+		`replace("(?i)^a\\s*ti"|"Ouch, a this")`,
+		`"orphan" nl2br`,
+		`nl2br "$1"`,
+		`a-b`,
+		`not_a_function("find"|"replace")`,
+		`replace("a"|"b") replace_title("c"|"d")`,
+		`  nl2br  ,  add_image_title  `,
+		"nl2br\nadd_image_title",
+		`replace("unterminated|"x")`,
+		`rule$with$dollars`,
+		`unicodé_rulé`,
+	}
+	// Include every predefined rule: they are all known-good historical inputs.
+	for _, rulesText := range predefinedRules {
+		corpus = append(corpus, rulesText)
+	}
+
+	for _, input := range corpus {
+		newTokens, newErrs := tokenizeRuleText(input, false)
+		legacyTokens, legacyLexicalErrs := legacyScanTokens(input)
+
+		if len(newTokens) != len(legacyTokens) {
+			t.Fatalf("token count mismatch for %q: new=%d (%v) legacy=%d (%v)",
+				input, len(newTokens), newTokens, len(legacyTokens), legacyTokens)
+		}
+		for i := range newTokens {
+			if newTokens[i].kind != legacyTokens[i].kind || newTokens[i].text != legacyTokens[i].text {
+				t.Errorf("token %d mismatch for %q: new=%+v legacy=%+v",
+					i, input, newTokens[i], legacyTokens[i])
+			}
+		}
+
+		// Both implementations report lexical and unquote problems out of band;
+		// they must agree on whether the input has any token-level problem and
+		// on the kinds of those problems (ordering is deterministic as well).
+		if len(newErrs) != len(legacyLexicalErrs) {
+			t.Errorf("error count mismatch for %q: new=%v legacy=%v",
+				input, newErrs, legacyLexicalErrs)
+		} else {
+			for i := range newErrs {
+				if newErrs[i].Kind != legacyLexicalErrs[i].Kind {
+					t.Errorf("error %d kind mismatch for %q: new=%v legacy=%v",
+						i, input, newErrs[i].Kind, legacyLexicalErrs[i].Kind)
+				}
+			}
+		}
+	}
+}
