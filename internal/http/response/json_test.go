@@ -300,3 +300,88 @@ func TestGenerateJSONError(t *testing.T) {
 		t.Fatalf(`Unexpected body, got %s instead of %s`, actualBody, `{"error_message":"some error"}`)
 	}
 }
+
+func TestJSONConflictResponse(t *testing.T) {
+	r, err := http.NewRequest("PUT", "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	etag := `W/"entry-version-9"`
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		JSONConflict(w, r, errors.New("entry has been modified"), etag)
+	})
+
+	handler.ServeHTTP(w, r)
+	resp := w.Result()
+
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf(`Unexpected status code, got %d instead of %d`, resp.StatusCode, http.StatusConflict)
+	}
+
+	if actualETag := resp.Header.Get("ETag"); actualETag != etag {
+		t.Fatalf(`Unexpected ETag header, got %q instead of %q`, actualETag, etag)
+	}
+
+	if actualBody := w.Body.String(); actualBody != `{"error_message":"entry has been modified"}` {
+		t.Fatalf(`Unexpected body, got %s`, actualBody)
+	}
+}
+
+func TestJSONConflictResponseWithoutETag(t *testing.T) {
+	r, err := http.NewRequest("PUT", "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		JSONConflict(w, r, errors.New("entry has been modified"), "")
+	})
+
+	handler.ServeHTTP(w, r)
+
+	if w.Result().StatusCode != http.StatusConflict {
+		t.Fatalf(`Unexpected status code, got %d`, w.Result().StatusCode)
+	}
+
+	if actualETag := w.Result().Header.Get("ETag"); actualETag != "" {
+		t.Fatalf(`Expected no ETag header, got %q`, actualETag)
+	}
+}
+
+func TestJSONWithETagResponse(t *testing.T) {
+	r, err := http.NewRequest("GET", "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	etag := `W/"entry-version-3"`
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		JSONWithETag(w, r, map[string]int64{"version": 3}, etag)
+	})
+
+	handler.ServeHTTP(w, r)
+	resp := w.Result()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf(`Unexpected status code, got %d`, resp.StatusCode)
+	}
+
+	if actualETag := resp.Header.Get("ETag"); actualETag != etag {
+		t.Fatalf(`Unexpected ETag header, got %q instead of %q`, actualETag, etag)
+	}
+
+	if actualVary := resp.Header.Get("Vary"); actualVary != "If-Match, Accept-Encoding" {
+		t.Fatalf(`Unexpected Vary header, got %q`, actualVary)
+	}
+
+	if actualBody := w.Body.String(); actualBody != `{"version":3}` {
+		t.Fatalf(`Unexpected body, got %s`, actualBody)
+	}
+}

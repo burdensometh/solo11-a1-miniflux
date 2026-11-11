@@ -1,0 +1,37 @@
+meta {
+  name: Conditionally update entry (If-Match)
+  type: http
+  seq: 42
+}
+
+# Optimistic concurrency control: send the ETag returned by the last GET in
+# If-Match. When another client modified the entry in the meantime, the
+# server answers 409 Conflict and returns the current ETag so the client can
+# refresh, reapply the change and retry. Omitting the header keeps the
+# legacy unconditional behavior.
+put {
+  url: {{minifluxBaseURL}}/v1/entries/{{entryID}}
+  body: json
+  auth: basic
+}
+
+auth:basic {
+  username: {{minifluxUsername}}
+  password: {{minifluxPassword}}
+}
+
+headers {
+  If-Match: W/"entry-version-1"
+}
+
+body:json {
+  {
+    "title": "New title",
+    "content": "Some text",
+    "expected_version": 1
+  }
+}
+
+vars:pre-request {
+  entryID: 1789
+}

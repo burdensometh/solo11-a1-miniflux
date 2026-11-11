@@ -151,3 +151,37 @@ func TestValidateEntryModification(t *testing.T) {
 		t.Errorf(`A valid title and content should not generate any error: %v`, err)
 	}
 }
+
+func TestValidateEntriesStatusAndStarredUpdateRequestExpectedVersions(t *testing.T) {
+	starred := true
+
+	// Guards referencing requested entries are accepted.
+	err := ValidateEntriesStatusAndStarredUpdateRequest(&model.EntriesStatusUpdateRequest{
+		Starred:          &starred,
+		EntryIDs:         []int64{1, 2},
+		ExpectedVersions: map[int64]int64{1: 3, 2: 7},
+	})
+	if err != nil {
+		t.Errorf(`A valid guarded request should not be rejected: %v`, err)
+	}
+
+	// A guard on an unknown entry is rejected.
+	err = ValidateEntriesStatusAndStarredUpdateRequest(&model.EntriesStatusUpdateRequest{
+		Starred:          &starred,
+		EntryIDs:         []int64{1},
+		ExpectedVersions: map[int64]int64{2: 1},
+	})
+	if err == nil {
+		t.Error(`A guard on an entry missing from entry_ids should be rejected`)
+	}
+
+	// Non-positive versions are rejected.
+	err = ValidateEntriesStatusAndStarredUpdateRequest(&model.EntriesStatusUpdateRequest{
+		Starred:          &starred,
+		EntryIDs:         []int64{1},
+		ExpectedVersions: map[int64]int64{1: 0},
+	})
+	if err == nil {
+		t.Error(`A zero expected version should be rejected`)
+	}
+}

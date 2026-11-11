@@ -28,6 +28,23 @@ func JSON(w http.ResponseWriter, r *http.Request, body any) {
 		Write()
 }
 
+// JSONWithETag behaves like JSON but also exposes the given ETag, which
+// clients can echo back through If-Match to perform conditional writes.
+func JSONWithETag(w http.ResponseWriter, r *http.Request, body any, etag string) {
+	responseBody, err := json.Marshal(body)
+	if err != nil {
+		JSONServerError(w, r, err)
+		return
+	}
+
+	NewBuilder(w, r).
+		WithHeader("Content-Type", jsonContentTypeHeader).
+		WithHeader("ETag", etag).
+		WithHeader("Vary", "If-Match").
+		WithBodyAsBytes(responseBody).
+		Write()
+}
+
 // JSONCreated sends a created response to the client.
 func JSONCreated(w http.ResponseWriter, r *http.Request, body any) {
 	responseBody, err := json.Marshal(body)
@@ -39,6 +56,24 @@ func JSONCreated(w http.ResponseWriter, r *http.Request, body any) {
 	NewBuilder(w, r).
 		WithStatus(http.StatusCreated).
 		WithHeader("Content-Type", jsonContentTypeHeader).
+		WithBodyAsBytes(responseBody).
+		Write()
+}
+
+// JSONCreatedWithETag behaves like JSONCreated but also exposes the given
+// ETag of the updated resource.
+func JSONCreatedWithETag(w http.ResponseWriter, r *http.Request, body any, etag string) {
+	responseBody, err := json.Marshal(body)
+	if err != nil {
+		JSONServerError(w, r, err)
+		return
+	}
+
+	NewBuilder(w, r).
+		WithStatus(http.StatusCreated).
+		WithHeader("Content-Type", jsonContentTypeHeader).
+		WithHeader("ETag", etag).
+		WithHeader("Vary", "If-Match").
 		WithBodyAsBytes(responseBody).
 		Write()
 }
@@ -156,6 +191,35 @@ func JSONNotFound(w http.ResponseWriter, r *http.Request) {
 		WithHeader("Content-Type", jsonContentTypeHeader).
 		WithBodyAsBytes(generateJSONError(errors.New("resource not found"))).
 		Write()
+}
+
+// JSONConflict sends an optimistic-locking conflict to the client. The
+// currentETag, when non-empty, is returned in the ETag header so the client
+// can refresh its copy without an extra GET round-trip.
+func JSONConflict(w http.ResponseWriter, r *http.Request, err error, currentETag string) {
+	slog.Warn(http.StatusText(http.StatusConflict),
+		slog.Any("error", err),
+		slog.String("client_ip", request.ClientIP(r)),
+		slog.Group("request",
+			slog.String("method", r.Method),
+			slog.String("uri", r.RequestURI),
+			slog.String("user_agent", r.UserAgent()),
+		),
+		slog.Group("response",
+			slog.Int("status_code", http.StatusConflict),
+		),
+	)
+
+	builder := NewBuilder(w, r).
+		WithStatus(http.StatusConflict).
+		WithHeader("Content-Type", jsonContentTypeHeader).
+		WithHeader("Vary", "If-Match")
+
+	if currentETag != "" {
+		builder.WithHeader("ETag", currentETag)
+	}
+
+	builder.WithBodyAsBytes(generateJSONError(err)).Write()
 }
 
 func generateJSONError(err error) []byte {

@@ -34,7 +34,7 @@ func TestNewHandlerHandlesOptionsRequests(t *testing.T) {
 		t.Fatalf(`Unexpected Access-Control-Allow-Methods header, got %q`, got)
 	}
 
-	if got := w.Header().Get("Access-Control-Allow-Headers"); got != "X-Auth-Token, Authorization, Content-Type, Accept" {
+	if got := w.Header().Get("Access-Control-Allow-Headers"); got != "X-Auth-Token, Authorization, Content-Type, Accept, If-Match" {
 		t.Fatalf(`Unexpected Access-Control-Allow-Headers header, got %q`, got)
 	}
 

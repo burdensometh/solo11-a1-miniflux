@@ -573,3 +573,27 @@ func TestBuildResponseWithReaderBody(t *testing.T) {
 		t.Fatalf(`Unexpected body, got %s instead of %s`, actualBody, "body")
 	}
 }
+
+func TestBuildResponseMergesCustomVaryHeader(t *testing.T) {
+	r, err := http.NewRequest("GET", "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		NewBuilder(w, r).
+			WithHeader("Vary", "If-Match").
+			WithBodyAsString("body").
+			Write()
+	})
+
+	handler.ServeHTTP(w, r)
+	resp := w.Result()
+
+	expectedVary := "If-Match, Accept-Encoding"
+	if actualVary := resp.Header.Get("Vary"); actualVary != expectedVary {
+		t.Fatalf(`Unexpected Vary header, got %q instead of %q`, actualVary, expectedVary)
+	}
+}

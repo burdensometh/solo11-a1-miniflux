@@ -1590,4 +1590,14 @@ var migrations = [...]func(tx *sql.Tx) error{
 		_, err = tx.Exec(sql)
 		return err
 	},
+	func(tx *sql.Tx) (err error) {
+		// Optimistic concurrency control token for entries. Every
+		// successful write increments it; clients echo the value back (as
+		// an ETag or an expected_version field) and stale writes are
+		// rejected. Existing rows start at 1, the same value as new rows.
+		_, err = tx.Exec(`
+			ALTER TABLE entries ADD COLUMN version bigint NOT NULL DEFAULT 1;
+		`)
+		return err
+	},
 }

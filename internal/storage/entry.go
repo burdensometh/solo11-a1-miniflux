@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"miniflux.app/v2/internal/crypto"
@@ -19,6 +20,27 @@ import (
 // ErrEntryTombstoned is returned when an entry cannot be created because its
 // (feed_id, hash) pair has a tombstone recording a prior deletion.
 var ErrEntryTombstoned = errors.New("store: entry is tombstoned")
+
+// ErrEntryConflict is returned by a conditional write when the entry
+// version supplied by the client no longer matches the stored version.
+// The CurrentVersion field carries the up-to-date version so callers can
+// surface it in the conflict response.
+var ErrEntryConflict = errors.New("store: entry has been modified by another request")
+
+// EntryConflictError wraps ErrEntryConflict with the current version of the
+// entry at the time the conditional write failed.
+type EntryConflictError struct {
+	EntryID        int64
+	CurrentVersion int64
+}
+
+func (e *EntryConflictError) Error() string {
+	return fmt.Sprintf("store: entry #%d has been modified by another request (current version: %d)", e.EntryID, e.CurrentVersion)
+}
+
+func (e *EntryConflictError) Is(target error) bool {
+	return target == ErrEntryConflict
+}
 
 // CountAllEntries returns the number of entries for each status in the database.
 func (s *Storage) CountAllEntries() (map[string]int64, error) {
@@ -48,33 +70,119 @@ func (s *Storage) CountAllEntries() (map[string]int64, error) {
 }
 
 // UpdateEntryTitleAndContent updates entry title and content.
-func (s *Storage) UpdateEntryTitleAndContent(entry *model.Entry) error {
+//
+// When expectedVersion is greater than zero, the write is conditional: it
+// succeeds only if the stored version still matches, and the entry version is
+// incremented atomically. A mismatch returns an *EntryConflictError. A zero
+// expectedVersion preserves the legacy unconditional behavior for clients
+// that do not participate in optimistic locking; such a write still
+// increments the version so version-aware clients keep working afterwards.
+func (s *Storage) UpdateEntryTitleAndContent(entry *model.Entry, expectedVersion int64) error {
 	truncatedTitle, truncatedContent := truncateTitleAndContentForTSVectorField(entry.Title, entry.Content)
-	query := `
-		UPDATE
-			entries
-		SET
-			title=$1,
-			content=$2,
-			reading_time=$3,
-			document_vectors = setweight(to_tsvector($4), 'A') || setweight(to_tsvector($5), 'B')
-		WHERE
-			id=$6 AND user_id=$7
-	`
 
-	if _, err := s.db.Exec(
-		query,
-		entry.Title,
-		entry.Content,
-		entry.ReadingTime,
-		truncatedTitle,
-		truncatedContent,
-		entry.ID,
-		entry.UserID); err != nil {
+	var (
+		query string
+		args  []any
+	)
+
+	if expectedVersion > 0 {
+		query = `
+			UPDATE
+				entries
+			SET
+				title=$1,
+				content=$2,
+				reading_time=$3,
+				document_vectors = setweight(to_tsvector($4), 'A') || setweight(to_tsvector($5), 'B'),
+				changed_at=now(),
+				version=version+1
+			WHERE
+				id=$6 AND user_id=$7 AND version=$8
+			RETURNING
+				version
+		`
+		args = []any{
+			entry.Title,
+			entry.Content,
+			entry.ReadingTime,
+			truncatedTitle,
+			truncatedContent,
+			entry.ID,
+			entry.UserID,
+			expectedVersion,
+		}
+	} else {
+		query = `
+			UPDATE
+				entries
+			SET
+				title=$1,
+				content=$2,
+				reading_time=$3,
+				document_vectors = setweight(to_tsvector($4), 'A') || setweight(to_tsvector($5), 'B'),
+				changed_at=now(),
+				version=version+1
+			WHERE
+				id=$6 AND user_id=$7
+			RETURNING
+				version
+		`
+		args = []any{
+			entry.Title,
+			entry.Content,
+			entry.ReadingTime,
+			truncatedTitle,
+			truncatedContent,
+			entry.ID,
+			entry.UserID,
+		}
+	}
+
+	var newVersion int64
+	err := s.db.QueryRow(query, args...).Scan(&newVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Either the entry does not belong to the user, or the version no
+		// longer matches. Fetch the current version to build a precise
+		// conflict; a missing entry maps to a conflict too since the
+		// handler already verified existence before reaching this point.
+		currentVersion, lookupErr := s.entryVersion(entry.UserID, entry.ID)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		return &EntryConflictError{EntryID: entry.ID, CurrentVersion: currentVersion}
+	}
+	if err != nil {
 		return fmt.Errorf(`store: unable to update entry #%d: %v`, entry.ID, err)
 	}
 
+	entry.Version = newVersion
 	return nil
+}
+
+// EntryVersion returns the current version of an entry owned by the given
+// user. It returns zero when the entry does not exist or belongs to another
+// user.
+func (s *Storage) EntryVersion(userID, entryID int64) (int64, error) {
+	return s.entryVersion(userID, entryID)
+}
+
+// entryVersion returns the current version of an entry owned by the given
+// user. It returns zero when the entry does not exist or belongs to another
+// user.
+func (s *Storage) entryVersion(userID, entryID int64) (int64, error) {
+	var version int64
+	err := s.db.QueryRow(
+		`SELECT version FROM entries WHERE id=$1 AND user_id=$2`,
+		entryID,
+		userID,
+	).Scan(&version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf(`store: unable to fetch version for entry #%d: %v`, entryID, err)
+	}
+	return version, nil
 }
 
 // createEntry add a new entry.
@@ -180,7 +288,9 @@ func (s *Storage) updateEntry(tx *sql.Tx, entry *model.Entry) error {
 			reading_time=$6,
 			document_vectors = setweight(to_tsvector($7), 'A') || setweight(to_tsvector($8), 'B'),
 			tags=$12,
-			language=$13
+			language=$13,
+			changed_at=now(),
+			version=version+1
 		WHERE
 			user_id=$9 AND feed_id=$10 AND hash=$11
 		RETURNING
@@ -410,21 +520,61 @@ func (s *Storage) ArchiveEntries(status string, interval time.Duration, limit in
 
 // SetEntriesStatus update the status of the given list of entries.
 func (s *Storage) SetEntriesStatus(userID int64, entryIDs []int64, status string) error {
+	return s.SetEntriesStatusWithExpectedVersions(userID, entryIDs, status, nil)
+}
+
+// SetEntriesStatusWithExpectedVersions updates the status of the given list
+// of entries with optimistic concurrency control. When expectedVersions maps
+// an entry ID to the version the client last read, the whole batch is
+// applied only if every guarded entry still matches; otherwise no row is
+// modified and an *EntryConflictError is returned. Entry IDs absent from the
+// map keep the legacy unconditional behavior. Every updated row gets its
+// version incremented.
+func (s *Storage) SetEntriesStatusWithExpectedVersions(userID int64, entryIDs []int64, status string, expectedVersions map[int64]int64) error {
+	guardedIDs, guardedVersions := orderedVersionPairs(expectedVersions)
+	// The guarding CTE makes the write all-or-nothing: when a single
+	// guarded entry is missing or stale, the conflict CTE returns a row and
+	// the UPDATE matches nothing, so concurrent batches cannot leave
+	// partial updates behind.
 	query := `
-		UPDATE
-			entries
-		SET
-			status=$1,
-			changed_at=now()
-		WHERE
-			user_id=$2 AND
-			id=ANY($3)
-		`
-	if _, err := s.db.Exec(query, status, userID, pq.Array(entryIDs)); err != nil {
+		WITH conflict AS (
+			SELECT e.id, e.version
+			FROM entries e
+			JOIN unnest($4::bigint[], $5::bigint[]) AS conditions(key, value)
+				ON conditions.key = e.id
+			WHERE e.user_id = $2 AND e.version <> conditions.value
+		),
+		updated AS (
+			UPDATE entries
+			SET
+				status=$1,
+				changed_at=now(),
+				version=version+1
+			WHERE
+				user_id=$2 AND
+				id=ANY($3) AND
+				NOT EXISTS (SELECT 1 FROM conflict)
+			RETURNING id
+		)
+		SELECT
+			(SELECT count(*) FROM updated),
+			COALESCE((SELECT id FROM conflict LIMIT 1), 0),
+			COALESCE((SELECT version FROM conflict LIMIT 1), 0)
+	`
+	var updatedCount, conflictID, conflictVersion int64
+	err := s.db.QueryRow(
+		query,
+		status,
+		userID,
+		pq.Array(entryIDs),
+		pq.Int64Array(guardedIDs),
+		pq.Int64Array(guardedVersions),
+	).Scan(&updatedCount, &conflictID, &conflictVersion)
+	if err != nil {
 		return fmt.Errorf(`store: unable to update entries statuses %v: %v`, entryIDs, err)
 	}
 
-	return nil
+	return s.checkBatchResult(userID, entryIDs, expectedVersions, updatedCount, conflictID, conflictVersion)
 }
 
 // SetEntriesStatusAndCountVisible updates the status of the given entries and returns how many are visible in global views.
@@ -434,7 +584,8 @@ func (s *Storage) SetEntriesStatusAndCountVisible(userID int64, entryIDs []int64
 			UPDATE entries
 			SET
 				status=$1,
-				changed_at=now()
+				changed_at=now(),
+				version=version+1
 			WHERE
 				user_id=$2 AND
 				id=ANY($3)
@@ -455,32 +606,153 @@ func (s *Storage) SetEntriesStatusAndCountVisible(userID int64, entryIDs []int64
 
 // SetEntriesStarredState updates the starred state for the given list of entries.
 func (s *Storage) SetEntriesStarredState(userID int64, entryIDs []int64, starred bool) error {
-	query := `UPDATE entries SET starred=$1, changed_at=now() WHERE user_id=$2 AND id=ANY($3)`
-	if _, err := s.db.Exec(query, starred, userID, pq.Array(entryIDs)); err != nil {
+	return s.SetEntriesStarredStateWithExpectedVersions(userID, entryIDs, starred, nil)
+}
+
+// SetEntriesStarredStateWithExpectedVersions is the optimistic-locking
+// variant of SetEntriesStarredState; see
+// SetEntriesStatusWithExpectedVersions for the all-or-nothing conflict
+// semantics.
+func (s *Storage) SetEntriesStarredStateWithExpectedVersions(userID int64, entryIDs []int64, starred bool, expectedVersions map[int64]int64) error {
+	guardedIDs, guardedVersions := orderedVersionPairs(expectedVersions)
+	query := `
+		WITH conflict AS (
+			SELECT e.id, e.version
+			FROM entries e
+			JOIN unnest($4::bigint[], $5::bigint[]) AS conditions(key, value)
+				ON conditions.key = e.id
+			WHERE e.user_id = $2 AND e.version <> conditions.value
+		),
+		updated AS (
+			UPDATE entries
+			SET
+				starred=$1,
+				changed_at=now(),
+				version=version+1
+			WHERE
+				user_id=$2 AND
+				id=ANY($3) AND
+				NOT EXISTS (SELECT 1 FROM conflict)
+			RETURNING id
+		)
+		SELECT
+			(SELECT count(*) FROM updated),
+			COALESCE((SELECT id FROM conflict LIMIT 1), 0),
+			COALESCE((SELECT version FROM conflict LIMIT 1), 0)
+	`
+	var updatedCount, conflictID, conflictVersion int64
+	err := s.db.QueryRow(
+		query,
+		starred,
+		userID,
+		pq.Array(entryIDs),
+		pq.Int64Array(guardedIDs),
+		pq.Int64Array(guardedVersions),
+	).Scan(&updatedCount, &conflictID, &conflictVersion)
+	if err != nil {
 		return fmt.Errorf(`store: unable to update the starred state %v: %v`, entryIDs, err)
 	}
 
-	return nil
+	return s.checkBatchResult(userID, entryIDs, expectedVersions, updatedCount, conflictID, conflictVersion)
+}
+
+// checkBatchResult validates the outcome of an all-or-nothing conditional
+// batch update. A conflict detected inside SQL is reported directly with
+// the current version; otherwise the method checks that every requested,
+// existing entry was touched (guarded or not), which catches unknown entry
+// IDs. Unconditional calls skip every check.
+func (s *Storage) checkBatchResult(userID int64, entryIDs []int64, expectedVersions map[int64]int64, updatedCount, conflictID, conflictVersion int64) error {
+	if conflictID != 0 {
+		return &EntryConflictError{EntryID: conflictID, CurrentVersion: conflictVersion}
+	}
+
+	if len(expectedVersions) == 0 {
+		return nil
+	}
+
+	if int(updatedCount) == len(entryIDs) {
+		return nil
+	}
+
+	// Some requested entry does not exist (or belongs to another user).
+	// Report the first one for a stable, actionable error.
+	missingID := entryIDs[0]
+	currentVersion, err := s.entryVersion(userID, missingID)
+	if err != nil {
+		return err
+	}
+	return &EntryConflictError{EntryID: missingID, CurrentVersion: currentVersion}
+}
+
+// orderedVersionPairs converts an entry-ID to version map into two slices
+// whose elements are paired by index. Sorting the keys makes the generated
+// SQL deterministic and keeps ids[i] aligned with versions[i] for the
+// unnest() expression used in the conditional updates.
+func orderedVersionPairs(m map[int64]int64) (ids []int64, versions []int64) {
+	ids = make([]int64, 0, len(m))
+	for k := range m {
+		ids = append(ids, k)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	versions = make([]int64, 0, len(ids))
+	for _, id := range ids {
+		versions = append(versions, m[id])
+	}
+	return ids, versions
 }
 
 // ToggleStarred toggles entry starred value.
 func (s *Storage) ToggleStarred(userID int64, entryID int64) error {
-	query := `UPDATE entries SET starred = NOT starred, changed_at=now() WHERE user_id=$1 AND id=$2`
-	result, err := s.db.Exec(query, userID, entryID)
+	_, err := s.ToggleStarredWithExpectedVersion(userID, entryID, 0)
+	return err
+}
+
+// ToggleStarredWithExpectedVersion toggles the entry starred value with
+// optimistic concurrency control. A positive expectedVersion makes the
+// write conditional and returns an *EntryConflictError on mismatch; the
+// returned value is the entry's new version. Zero means unconditional.
+func (s *Storage) ToggleStarredWithExpectedVersion(userID int64, entryID int64, expectedVersion int64) (int64, error) {
+	var (
+		query string
+		args  []any
+	)
+
+	if expectedVersion > 0 {
+		query = `
+			UPDATE entries
+			SET starred = NOT starred, changed_at=now(), version=version+1
+			WHERE user_id=$1 AND id=$2 AND version=$3
+			RETURNING version
+		`
+		args = []any{userID, entryID, expectedVersion}
+	} else {
+		query = `
+			UPDATE entries
+			SET starred = NOT starred, changed_at=now(), version=version+1
+			WHERE user_id=$1 AND id=$2
+			RETURNING version
+		`
+		args = []any{userID, entryID}
+	}
+
+	var newVersion int64
+	err := s.db.QueryRow(query, args...).Scan(&newVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		currentVersion, lookupErr := s.entryVersion(userID, entryID)
+		if lookupErr != nil {
+			return 0, lookupErr
+		}
+		if currentVersion == 0 && expectedVersion == 0 {
+			return 0, errors.New(`store: nothing has been updated`)
+		}
+		return 0, &EntryConflictError{EntryID: entryID, CurrentVersion: currentVersion}
+	}
 	if err != nil {
-		return fmt.Errorf(`store: unable to toggle starred flag for entry #%d: %v`, entryID, err)
+		return 0, fmt.Errorf(`store: unable to toggle starred flag for entry #%d: %v`, entryID, err)
 	}
 
-	count, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf(`store: unable to toggle starred flag for entry #%d: %v`, entryID, err)
-	}
-
-	if count == 0 {
-		return errors.New(`store: nothing has been updated`)
-	}
-
-	return nil
+	return newVersion, nil
 }
 
 // FlushHistory deletes all read entries (non-starred, non-shared) and records tombstones to prevent re-ingestion.
@@ -504,7 +776,7 @@ func (s *Storage) FlushHistory(userID int64) error {
 
 // MarkAllAsRead updates all user entries to the read status.
 func (s *Storage) MarkAllAsRead(userID int64) error {
-	query := `UPDATE entries SET status=$1, changed_at=now() WHERE user_id=$2 AND status=$3`
+	query := `UPDATE entries SET status=$1, changed_at=now(), version=version+1 WHERE user_id=$2 AND status=$3`
 	result, err := s.db.Exec(query, model.EntryStatusRead, userID, model.EntryStatusUnread)
 	if err != nil {
 		return fmt.Errorf(`store: unable to mark all entries as read: %v`, err)
@@ -526,7 +798,8 @@ func (s *Storage) MarkAllAsReadBeforeDate(userID int64, before time.Time) error 
 			entries
 		SET
 			status=$1,
-			changed_at=now()
+			changed_at=now(),
+			version=version+1
 		WHERE
 			user_id=$2 AND status=$3 AND published_at < $4
 	`
@@ -552,7 +825,8 @@ func (s *Storage) MarkGloballyVisibleFeedsAsRead(userID int64) error {
 			entries
 		SET
 			status=$1,
-			changed_at=now()
+			changed_at=now(),
+			version=version+1
 		FROM
 			feeds
 			JOIN categories ON (categories.id = feeds.category_id)
@@ -584,7 +858,8 @@ func (s *Storage) MarkFeedAsRead(userID, feedID int64, before time.Time) error {
 			entries
 		SET
 			status=$1,
-			changed_at=now()
+			changed_at=now(),
+			version=version+1
 		WHERE
 			user_id=$2 AND feed_id=$3 AND status=$4 AND published_at < $5
 	`
@@ -611,7 +886,8 @@ func (s *Storage) MarkCategoryAsRead(userID, categoryID int64, before time.Time)
 			entries
 		SET
 			status=$1,
-			changed_at=now()
+			changed_at=now(),
+			version=version+1
 		FROM
 			feeds
 		WHERE
@@ -654,7 +930,7 @@ func (s *Storage) EntryShareCode(userID int64, entryID int64) (shareCode string,
 	if shareCode == "" {
 		shareCode = crypto.GenerateRandomStringHex(20)
 
-		query = `UPDATE entries SET share_code = $1 WHERE user_id=$2 AND id=$3`
+		query = `UPDATE entries SET share_code = $1, changed_at=now(), version=version+1 WHERE user_id=$2 AND id=$3`
 		_, err = s.db.Exec(query, shareCode, userID, entryID)
 		if err != nil {
 			err = fmt.Errorf(`store: unable to set share code for entry #%d: %v`, entryID, err)
@@ -667,7 +943,7 @@ func (s *Storage) EntryShareCode(userID int64, entryID int64) (shareCode string,
 
 // UnshareEntry removes the share code for the given entry.
 func (s *Storage) UnshareEntry(userID int64, entryID int64) (err error) {
-	query := `UPDATE entries SET share_code='' WHERE user_id=$1 AND id=$2`
+	query := `UPDATE entries SET share_code='', changed_at=now(), version=version+1 WHERE user_id=$1 AND id=$2`
 	_, err = s.db.Exec(query, userID, entryID)
 	if err != nil {
 		err = fmt.Errorf(`store: unable to remove share code for entry #%d: %v`, entryID, err)

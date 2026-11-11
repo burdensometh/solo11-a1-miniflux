@@ -226,6 +226,15 @@ func (b *Builder) writeHeaders() {
 
 	maps.Copy(b.w.Header(), b.headers)
 
+	// Compression varies the encoding; preserve any caller-provided Vary
+	// value (e.g. Vary: If-Match on conditional-write endpoints) instead
+	// of overwriting it.
+	if existingVary := b.headers.Get("Vary"); existingVary != "" && existingVary != "Accept-Encoding" {
+		b.w.Header().Set("Vary", existingVary+", Accept-Encoding")
+	} else {
+		b.w.Header().Set("Vary", "Accept-Encoding")
+	}
+
 	// Shared caches must never replay a cookie to other visitors.
 	headers := b.w.Header()
 	if len(headers.Values("Set-Cookie")) > 0 && strings.Contains(headers.Get("Cache-Control"), "public") {

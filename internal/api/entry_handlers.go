@@ -38,7 +38,7 @@ func (h *handler) getEntryFromBuilder(w http.ResponseWriter, r *http.Request, b 
 	entry.Content = mediaproxy.RewriteDocumentWithAbsoluteProxyURL(entry.Content)
 	entry.Enclosures.ProxifyEnclosureURL(config.Opts.MediaProxyMode(), config.Opts.MediaProxyResourceTypes())
 
-	response.JSON(w, r, entry)
+	response.JSONWithETag(w, r, entry, entry.ETag())
 }
 
 func (h *handler) getFeedEntryHandler(w http.ResponseWriter, r *http.Request) {
@@ -220,21 +220,36 @@ func (h *handler) setEntryStatusAndStarredHandler(w http.ResponseWriter, r *http
 		return
 	}
 
+	userID := request.UserID(r)
+	expectedVersions := entriesStatusUpdateRequest.ExpectedVersions
+
 	if entriesStatusUpdateRequest.Status != "" {
-		if err := h.store.SetEntriesStatus(request.UserID(r), entriesStatusUpdateRequest.EntryIDs, entriesStatusUpdateRequest.Status); err != nil {
-			response.JSONServerError(w, r, err)
+		if err := h.store.SetEntriesStatusWithExpectedVersions(userID, entriesStatusUpdateRequest.EntryIDs, entriesStatusUpdateRequest.Status, expectedVersions); err != nil {
+			h.writeEntryMutationError(w, r, err)
 			return
 		}
 	}
 
 	if entriesStatusUpdateRequest.Starred != nil {
-		if err := h.store.SetEntriesStarredState(request.UserID(r), entriesStatusUpdateRequest.EntryIDs, *entriesStatusUpdateRequest.Starred); err != nil {
-			response.JSONServerError(w, r, err)
+		if err := h.store.SetEntriesStarredStateWithExpectedVersions(userID, entriesStatusUpdateRequest.EntryIDs, *entriesStatusUpdateRequest.Starred, expectedVersions); err != nil {
+			h.writeEntryMutationError(w, r, err)
 			return
 		}
 	}
 
 	response.NoContent(w, r)
+}
+
+// writeEntryMutationError maps storage errors from conditional writes onto
+// the correct HTTP response: an optimistic-locking conflict becomes 409 and
+// carries the current ETag, anything else stays a 500.
+func (h *handler) writeEntryMutationError(w http.ResponseWriter, r *http.Request, err error) {
+	var conflictErr *storage.EntryConflictError
+	if errors.As(err, &conflictErr) {
+		response.JSONConflict(w, r, err, model.FormatEntryETag(conflictErr.CurrentVersion))
+		return
+	}
+	response.JSONServerError(w, r, err)
 }
 
 func (h *handler) toggleStarredHandler(w http.ResponseWriter, r *http.Request) {
@@ -244,11 +259,45 @@ func (h *handler) toggleStarredHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.ToggleStarred(request.UserID(r), entryID); err != nil {
-		response.JSONServerError(w, r, err)
+	// If-Match is optional: absent means the legacy unconditional toggle,
+	// present turns the request into a conditional write. The wildcard
+	// ("*") resolves to the entry's current version, which the storage
+	// layer still verifies atomically inside the UPDATE.
+	headerVersion, headerPresent, headerOK := model.ParseIfMatchHeader(r.Header.Get("If-Match"))
+	if !headerOK {
+		response.JSONBadRequest(w, r, errors.New(`the If-Match header is malformed`))
 		return
 	}
 
+	var expectedVersion int64
+	switch {
+	case !headerPresent:
+		expectedVersion = 0
+	case headerVersion > 0:
+		expectedVersion = headerVersion
+	default:
+		current, err := h.store.EntryVersion(request.UserID(r), entryID)
+		if err != nil {
+			response.JSONServerError(w, r, err)
+			return
+		}
+		if current == 0 {
+			response.JSONNotFound(w, r)
+			return
+		}
+		expectedVersion = current
+	}
+
+	newVersion, err := h.store.ToggleStarredWithExpectedVersion(request.UserID(r), entryID, expectedVersion)
+	if err != nil {
+		h.writeEntryMutationError(w, r, err)
+		return
+	}
+
+	// Expose the post-toggle ETag so the client can chain another
+	// conditional request without re-fetching the entry.
+	w.Header().Set("ETag", model.FormatEntryETag(newVersion))
+	w.Header().Set("Vary", "If-Match")
 	response.NoContent(w, r)
 }
 
@@ -300,6 +349,16 @@ func (h *handler) updateEntryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The client may carry the expected version either as a standard
+	// If-Match ETag or as an explicit JSON field. If-Match takes
+	// precedence; a malformed If-Match header is a 400 rather than a 409
+	// because the request itself is invalid.
+	headerVersion, headerPresent, headerOK := model.ParseIfMatchHeader(r.Header.Get("If-Match"))
+	if !headerOK {
+		response.JSONBadRequest(w, r, errors.New(`the If-Match header is malformed`))
+		return
+	}
+
 	entryID := request.RouteInt64Param(r, "entryID")
 	if entryID == 0 {
 		response.JSONBadRequest(w, r, errors.New("invalid entry ID"))
@@ -319,6 +378,18 @@ func (h *handler) updateEntryHandler(w http.ResponseWriter, r *http.Request) {
 	if entry == nil {
 		response.JSONNotFound(w, r)
 		return
+	}
+
+	// Resolve the conditional-write version now that the current entry is
+	// loaded. The wildcard ("*") means "if the resource still exists":
+	// guard the write with the freshly read version so a concurrent
+	// modification between this GET and the UPDATE still fails with 409.
+	expectedVersion := entryUpdateRequest.ExpectedVersion
+	switch {
+	case headerPresent && headerVersion > 0:
+		expectedVersion = headerVersion
+	case headerPresent:
+		expectedVersion = entry.Version
 	}
 
 	user, err := h.store.UserByID(loggedUserID)
@@ -342,12 +413,17 @@ func (h *handler) updateEntryHandler(w http.ResponseWriter, r *http.Request) {
 		entry.ReadingTime = readingtime.EstimateReadingTime(entry.Content, user.DefaultReadingSpeed, user.CJKReadingSpeed)
 	}
 
-	if err := h.store.UpdateEntryTitleAndContent(entry); err != nil {
+	if err := h.store.UpdateEntryTitleAndContent(entry, expectedVersion); err != nil {
+		var conflictErr *storage.EntryConflictError
+		if errors.As(err, &conflictErr) {
+			response.JSONConflict(w, r, err, model.FormatEntryETag(conflictErr.CurrentVersion))
+			return
+		}
 		response.JSONServerError(w, r, err)
 		return
 	}
 
-	response.JSONCreated(w, r, entry)
+	response.JSONCreatedWithETag(w, r, entry, entry.ETag())
 }
 
 func (h *handler) importFeedEntryHandler(w http.ResponseWriter, r *http.Request) {

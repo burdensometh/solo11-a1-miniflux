@@ -1084,6 +1084,38 @@ func (c *Client) UpdateEntryContext(ctx context.Context, entryID int64, entryCha
 	return entry, nil
 }
 
+// UpdateEntryWithETag performs a conditional entry update: the server only
+// applies it if the entry version represented by expectedETag is still
+// current. On a concurrent modification the returned error wraps
+// ErrConflict and carries the current ETag, so the caller can refresh and
+// retry.
+func (c *Client) UpdateEntryWithETag(ctx context.Context, entryID int64, entryChanges *EntryModificationRequest, expectedETag string) (*Entry, error) {
+	headers := http.Header{}
+	headers.Set("If-Match", expectedETag)
+
+	body, err := c.request.PutWithHeaders(ctx, fmt.Sprintf("/v1/entries/%d", entryID), entryChanges, headers)
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+
+	var entry *Entry
+	if err := json.NewDecoder(body).Decode(&entry); err != nil {
+		return nil, fmt.Errorf("miniflux: response error (%v)", err)
+	}
+
+	return entry, nil
+}
+
+// UpdateEntriesWithExpectedVersions performs a conditional batch update of
+// entry statuses and/or starred state. Entries present in expectedVersions
+// are guarded against concurrent writes; the others are updated
+// unconditionally. A conflict returns an error wrapping ErrConflict.
+func (c *Client) UpdateEntriesWithExpectedVersions(ctx context.Context, payload *EntriesStatusUpdateRequest) error {
+	_, err := c.request.Put(ctx, "/v1/entries", payload)
+	return err
+}
+
 // ToggleStarred toggles the starred flag of an entry.
 func (c *Client) ToggleStarred(entryID int64) error {
 	ctx, cancel := withDefaultTimeout()
@@ -1095,6 +1127,22 @@ func (c *Client) ToggleStarred(entryID int64) error {
 func (c *Client) ToggleStarredContext(ctx context.Context, entryID int64) error {
 	_, err := c.request.Put(ctx, fmt.Sprintf("/v1/entries/%d/star", entryID), nil)
 	return err
+}
+
+// ToggleStarredWithETag conditionally toggles the starred flag. It returns
+// the new entry version on success, or an error wrapping ErrConflict when
+// the expected ETag is stale (the typed conflict then carries the current
+// ETag for a refresh-and-retry loop).
+func (c *Client) ToggleStarredWithETag(ctx context.Context, entryID int64, expectedETag string) (newVersion int64, err error) {
+	headers := http.Header{}
+	headers.Set("If-Match", expectedETag)
+
+	responseHeaders, err := c.request.PutReturningHeaders(ctx, fmt.Sprintf("/v1/entries/%d/star", entryID), nil, headers)
+	if err != nil {
+		return 0, err
+	}
+
+	return parseEntryVersionETag(responseHeaders.Get("ETag")), nil
 }
 
 // SaveEntry sends an entry to a third-party service.

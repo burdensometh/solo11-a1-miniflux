@@ -32,7 +32,27 @@ func ValidateEntriesStatusAndStarredUpdateRequest(request *model.EntriesStatusUp
 	}
 
 	if request.Status != "" {
-		return ValidateEntryStatus(request.Status)
+		if err := ValidateEntryStatus(request.Status); err != nil {
+			return err
+		}
+	}
+
+	// Every optimistic-locking guard must reference an entry the request is
+	// actually updating; otherwise the server would silently ignore a stale
+	// version and the client could not reason about the outcome.
+	if len(request.ExpectedVersions) > 0 {
+		knownIDs := make(map[int64]struct{}, len(request.EntryIDs))
+		for _, id := range request.EntryIDs {
+			knownIDs[id] = struct{}{}
+		}
+		for entryID, version := range request.ExpectedVersions {
+			if _, exists := knownIDs[entryID]; !exists {
+				return fmt.Errorf(`expected_versions references entry #%d which is not in entry_ids`, entryID)
+			}
+			if version <= 0 {
+				return fmt.Errorf(`expected_versions for entry #%d must be greater than zero`, entryID)
+			}
+		}
 	}
 
 	return nil

@@ -1,0 +1,31 @@
+meta {
+  name: Conditionally update entries status
+  type: http
+  seq: 43
+}
+
+# Optimistic concurrency control for batch updates: expected_versions maps
+# each guarded entry ID to the version the client last read. The whole
+# batch is rejected with 409 Conflict when any guarded entry is stale.
+# Entries missing from the map are updated unconditionally.
+put {
+  url: {{minifluxBaseURL}}/v1/entries
+  body: json
+  auth: basic
+}
+
+auth:basic {
+  username: {{minifluxUsername}}
+  password: {{minifluxPassword}}
+}
+
+body:json {
+  {
+    "entry_ids": [1698, 1699],
+    "status": "read",
+    "expected_versions": {
+      "1698": 1,
+      "1699": 4
+    }
+  }
+}

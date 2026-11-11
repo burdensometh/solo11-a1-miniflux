@@ -1,0 +1,34 @@
+meta {
+  name: Conditionally bookmark an entry
+  type: http
+  seq: 44
+}
+
+# Conditional star toggle: the bookmark is toggled only if the entry version
+# behind the If-Match ETag is still current. A stale ETag yields 409
+# Conflict with the current ETag; the successful 204 response also carries
+# the new ETag for chained conditional requests.
+put {
+  url: {{minifluxBaseURL}}/v1/entries/{{entryID}}/bookmark
+  body: none
+  auth: basic
+}
+
+auth:basic {
+  username: {{minifluxUsername}}
+  password: {{minifluxPassword}}
+}
+
+headers {
+  If-Match: W/"entry-version-1"
+}
+
+body:json {
+  {
+    "feed_url": "https://miniflux.app/feed.xml"
+  }
+}
+
+vars:pre-request {
+  entryID: 1698
+}

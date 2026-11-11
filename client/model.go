@@ -274,12 +274,46 @@ type Entry struct {
 	UserID      int64      `json:"user_id"`
 	FeedID      int64      `json:"feed_id"`
 	Starred     bool       `json:"starred"`
+	// Version is the optimistic concurrency token echoed back by the
+	// server. Pass it as ExpectedVersion on the next write to detect
+	// concurrent modifications.
+	Version int64 `json:"version"`
+}
+
+// EntryETagPrefix is the fixed prefix of entry ETags produced by the server.
+const EntryETagPrefix = "entry-version"
+
+// ETag returns the weak ETag corresponding to the entry version, matching
+// the ETag header returned by the server.
+func (e *Entry) ETag() string {
+	return EntryVersionETag(e.Version)
+}
+
+// EntryVersionETag builds the weak ETag for a given entry version.
+func EntryVersionETag(version int64) string {
+	return fmt.Sprintf(`W/"%s-%d"`, EntryETagPrefix, version)
 }
 
 // EntryModificationRequest represents a request to modify an entry.
 type EntryModificationRequest struct {
 	Title   *string `json:"title"`
 	Content *string `json:"content"`
+	// ExpectedVersion, when greater than zero, turns the write into a
+	// conditional one. The server rejects the request with ErrConflict if
+	// the entry changed since the version was read. Zero preserves the
+	// legacy unconditional behavior.
+	ExpectedVersion int64 `json:"expected_version,omitempty"`
+}
+
+// EntriesStatusUpdateRequest represents a batch status/starred update.
+type EntriesStatusUpdateRequest struct {
+	EntryIDs []int64 `json:"entry_ids"`
+	Status   string  `json:"status,omitempty"`
+	Starred  *bool   `json:"starred,omitempty"`
+	// ExpectedVersions maps entry IDs to the version last read by the
+	// client. Guarded entries are updated only when their version still
+	// matches; unguarded entries keep the unconditional behavior.
+	ExpectedVersions map[int64]int64 `json:"expected_versions,omitempty"`
 }
 
 // Entries represents a list of entries.
