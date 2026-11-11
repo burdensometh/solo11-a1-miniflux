@@ -11,12 +11,16 @@ import (
 
 // Storage handles all operations related to the database.
 type Storage struct {
-	db *sql.DB
+	db        *sql.DB
+	iconCache *iconCache
 }
 
 // NewStorage returns a new Storage.
 func NewStorage(db *sql.DB) *Storage {
-	return &Storage{db}
+	return &Storage{
+		db:        db,
+		iconCache: newIconCache(),
+	}
 }
 
 // DatabaseVersion returns the version of the database which is in use.

@@ -4,6 +4,7 @@
 package ui // import "miniflux.app/v2/internal/ui"
 
 import (
+	"log/slog"
 	"net/http"
 
 	"miniflux.app/v2/internal/http/request"
@@ -31,6 +32,13 @@ func (h *handler) showFeedEntriesPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The page header renders the feed icon even when the entry list is
+	// empty, in which case the entry preload below never runs. On non-empty
+	// pages this is a cache hit and adds no query.
+	if err := h.store.PreloadFeedIcon(feed); err != nil {
+		slog.Debug("Unable to preload feed icon", slog.Any("error", err))
+	}
+
 	offset := request.QueryIntParam(r, "offset", 0)
 
 	unreadEntries := func(offset int) (model.Entries, int, error) {
@@ -42,6 +50,7 @@ func (h *handler) showFeedEntriesPage(w http.ResponseWriter, r *http.Request) {
 			WithOffset(offset).
 			WithLimit(user.EntriesPerPage).
 			WithoutContent().
+			WithFeedIconsPreload().
 			GetEntriesWithCount()
 	}
 

@@ -42,6 +42,7 @@ func (h *handler) showCategoryEntriesPage(w http.ResponseWriter, r *http.Request
 			WithoutContent().
 			WithOffset(offset).
 			WithLimit(user.EntriesPerPage).
+			WithFeedIconsPreload().
 			GetEntriesWithCount()
 	}
 

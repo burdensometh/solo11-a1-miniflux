@@ -27,6 +27,7 @@ func (h *handler) sharedEntries(w http.ResponseWriter, r *http.Request) {
 		WithOffset(offset).
 		WithLimit(user.EntriesPerPage).
 		WithoutContent().
+		WithFeedIconsPreload().
 		GetEntriesWithCount()
 	if err != nil {
 		response.HTMLServerError(w, r, err)

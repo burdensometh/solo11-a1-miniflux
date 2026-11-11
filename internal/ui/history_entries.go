@@ -28,6 +28,7 @@ func (h *handler) showHistoryPage(w http.ResponseWriter, r *http.Request) {
 		WithoutContent().
 		WithOffset(offset).
 		WithLimit(user.EntriesPerPage).
+		WithFeedIconsPreload().
 		GetEntriesWithCount()
 	if err != nil {
 		response.HTMLServerError(w, r, err)

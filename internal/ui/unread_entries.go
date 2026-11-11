@@ -29,6 +29,7 @@ func (h *handler) showUnreadPage(w http.ResponseWriter, r *http.Request) {
 		WithLimit(user.EntriesPerPage).
 		WithGloballyVisible().
 		WithoutContent().
+		WithFeedIconsPreload().
 		GetEntriesWithCount()
 	if err != nil {
 		response.HTMLServerError(w, r, err)
@@ -45,6 +46,7 @@ func (h *handler) showUnreadPage(w http.ResponseWriter, r *http.Request) {
 			WithLimit(user.EntriesPerPage).
 			WithGloballyVisible().
 			WithoutContent().
+			WithFeedIconsPreload().
 			GetEntriesWithCount()
 		if err != nil {
 			response.HTMLServerError(w, r, err)

@@ -30,7 +30,7 @@ func (h *handler) showCategoryFeedsPage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	feeds, err := h.store.FeedsByCategoryWithCounters(user.ID, categoryID)
+	feeds, err := h.store.FeedsByCategoryWithCountersAndIcons(user.ID, categoryID)
 	if err != nil {
 		response.HTMLServerError(w, r, err)
 		return

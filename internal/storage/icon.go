@@ -55,26 +55,50 @@ func (s *Storage) IconByUserAndIconID(userID, iconID int64) (*model.Icon, error)
 
 // IconByExternalID fetches an icon using its external identifier, returning nil when no match exists.
 func (s *Storage) IconByExternalID(externalIconID string) (*model.Icon, error) {
-	var icon model.Icon
-	query := `
-		SELECT
-			id,
-			hash,
-			mime_type,
-			content,
-			external_id
-		FROM icons
-		WHERE external_id=$1
-	`
-	err := s.db.QueryRow(query, externalIconID).Scan(&icon.ID, &icon.Hash, &icon.MimeType, &icon.Content, &icon.ExternalID)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
+	if externalIconID == "" {
 		return nil, nil
-	case err != nil:
-		return nil, fmt.Errorf("store: cannot load icon external_id=%s: %w", externalIconID, err)
-	default:
-		return &icon, nil
 	}
+
+	return s.iconCache.load(externalIconID, func() (*model.Icon, error) {
+		var icon model.Icon
+		query := `
+			SELECT
+				id,
+				hash,
+				mime_type,
+				content,
+				external_id
+			FROM icons
+			WHERE external_id=$1
+		`
+		err := s.db.QueryRow(query, externalIconID).Scan(&icon.ID, &icon.Hash, &icon.MimeType, &icon.Content, &icon.ExternalID)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil, nil
+		case err != nil:
+			return nil, fmt.Errorf("store: cannot load icon external_id=%s: %w", externalIconID, err)
+		default:
+			return &icon, nil
+		}
+	})
+}
+
+// PreloadIconsByExternalIDs loads the requested icons in a single query and
+// stores them in the icon cache. Already-cached identifiers are skipped, and
+// unknown identifiers simply remain uncached: a later request for them still
+// hits the database and returns the same 404 as before.
+func (s *Storage) PreloadIconsByExternalIDs(externalIconIDs []string) error {
+	return s.iconCache.preload(s.db, externalIconIDs)
+}
+
+// PreloadFeedIcon warms the icon cache for a single feed. Feed detail pages
+// render the feed's icon and otherwise trigger an extra lookup when the
+// browser requests it.
+func (s *Storage) PreloadFeedIcon(feed *model.Feed) error {
+	if feed == nil || feed.Icon == nil || feed.Icon.ExternalIconID == "" {
+		return nil
+	}
+	return s.iconCache.preload(s.db, []string{feed.Icon.ExternalIconID})
 }
 
 // IconByFeedID returns the icon linked to the given feed for the specified user, or nil if none is set.
@@ -171,6 +195,7 @@ func (s *Storage) CleanupOrphanIcons() (int64, error) {
 	}
 
 	n, _ := result.RowsAffected()
+	s.iconCache.clear()
 	return n, nil
 }
 

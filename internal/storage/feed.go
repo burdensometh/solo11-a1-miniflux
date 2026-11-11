@@ -173,6 +173,27 @@ func (s *Storage) FeedsByCategoryWithCounters(userID, categoryID int64) (model.F
 		WithSorting(model.DefaultFeedSorting, model.DefaultFeedSortingDirection))
 }
 
+// FeedsWithCountersAndIcons behaves like FeedsWithCounters but also loads the
+// feed icons in a single query, because the web feed list renders one icon
+// per row.
+func (s *Storage) FeedsWithCountersAndIcons(userID int64) (model.Feeds, error) {
+	return getFeedsSorted(s.NewFeedQueryBuilder(userID).
+		WithCounters().
+		WithFeedIconsPreload().
+		WithSorting(model.DefaultFeedSorting, model.DefaultFeedSortingDirection))
+}
+
+// FeedsByCategoryWithCountersAndIcons behaves like
+// FeedsByCategoryWithCounters but also loads the feed icons in a single
+// query, because the web category feed list renders one icon per row.
+func (s *Storage) FeedsByCategoryWithCountersAndIcons(userID, categoryID int64) (model.Feeds, error) {
+	return getFeedsSorted(s.NewFeedQueryBuilder(userID).
+		WithCategoryID(categoryID).
+		WithCounters().
+		WithFeedIconsPreload().
+		WithSorting(model.DefaultFeedSorting, model.DefaultFeedSortingDirection))
+}
+
 // WeeklyFeedEntryCount returns the weekly entry count for a feed.
 func (s *Storage) WeeklyFeedEntryCount(userID, feedID int64) (int, error) {
 	// Calculate a virtual weekly count based on the average updating frequency.

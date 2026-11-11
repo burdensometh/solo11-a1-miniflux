@@ -6,6 +6,7 @@ package storage // import "miniflux.app/v2/internal/storage"
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,7 @@ import (
 // feedQueryBuilder builds a SQL query to fetch feeds.
 type feedQueryBuilder struct {
 	db                *sql.DB
+	iconCache         *iconCache
 	args              []any
 	conditions        []string
 	sortExpressions   []string
@@ -26,12 +28,22 @@ type feedQueryBuilder struct {
 	counterJoinFeeds  bool
 	counterArgs       []any
 	counterConditions []string
+	preloadIcons      bool
+}
+
+// WithFeedIconsPreload loads the feed icons referenced by the returned feeds
+// in a single query and caches them. Feed list templates render one icon per
+// feed, which would otherwise cause one icon lookup per rendered row.
+func (f *feedQueryBuilder) WithFeedIconsPreload() *feedQueryBuilder {
+	f.preloadIcons = true
+	return f
 }
 
 // NewFeedQueryBuilder returns a new FeedQueryBuilder.
 func (s *Storage) NewFeedQueryBuilder(userID int64) *feedQueryBuilder {
 	return &feedQueryBuilder{
 		db:                s.db,
+		iconCache:         s.iconCache,
 		args:              []any{userID},
 		conditions:        []string{"f.user_id = $1"},
 		counterArgs:       []any{userID, model.EntryStatusRead, model.EntryStatusUnread},
@@ -294,7 +306,44 @@ func (f *feedQueryBuilder) GetFeeds() (model.Feeds, error) {
 		feeds = append(feeds, &feed)
 	}
 
+	if f.preloadIcons {
+		if err := f.preloadFeedIcons(feeds); err != nil {
+			// Preloading is only a cache warm-up: icon requests fall back to the
+			// per-icon query when it fails.
+			slog.Debug("Unable to preload feed icons", slog.Any("error", err))
+		}
+	}
+
 	return feeds, nil
+}
+
+// preloadFeedIcons collects the distinct icon identifiers referenced by the
+// returned feeds and fetches them once, so rendering one <img> per feed row
+// does not run one icons query per row.
+func (f *feedQueryBuilder) preloadFeedIcons(feeds model.Feeds) error {
+	if len(feeds) == 0 || f.iconCache == nil {
+		return nil
+	}
+
+	externalIconIDs := make([]string, 0, len(feeds))
+	seen := make(map[string]struct{}, len(feeds))
+	for _, feed := range feeds {
+		if feed.Icon == nil || feed.Icon.ExternalIconID == "" {
+			continue
+		}
+		externalIconID := feed.Icon.ExternalIconID
+		if _, exists := seen[externalIconID]; exists {
+			continue
+		}
+		seen[externalIconID] = struct{}{}
+		externalIconIDs = append(externalIconIDs, externalIconID)
+	}
+
+	if len(externalIconIDs) == 0 {
+		return nil
+	}
+
+	return f.iconCache.preload(f.db, externalIconIDs)
 }
 
 func (f *feedQueryBuilder) fetchFeedCounter() (unreadCounters map[int64]int, readCounters map[int64]int, err error) {

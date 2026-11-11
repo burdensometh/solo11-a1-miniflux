@@ -6,6 +6,7 @@ package storage // import "miniflux.app/v2/internal/storage"
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -26,11 +27,20 @@ type EntryQueryBuilder struct {
 	offset          int
 	fetchEnclosures bool
 	excludeContent  bool
+	preloadIcons    bool
 }
 
 // WithEnclosures fetches enclosures for each entry.
 func (e *EntryQueryBuilder) WithEnclosures() *EntryQueryBuilder {
 	e.fetchEnclosures = true
+	return e
+}
+
+// WithFeedIconsPreload loads the feed icons referenced by the returned
+// entries in a single query and caches them. List templates render one icon
+// per entry, which would otherwise cause one icon lookup per rendered row.
+func (e *EntryQueryBuilder) WithFeedIconsPreload() *EntryQueryBuilder {
+	e.preloadIcons = true
 	return e
 }
 
@@ -457,7 +467,45 @@ func (e *EntryQueryBuilder) fetchEntries(withCount bool) (model.Entries, int, er
 		}
 	}
 
+	if e.preloadIcons {
+		if err := e.preloadFeedIcons(entries); err != nil {
+			// Preloading is only a cache warm-up: rendering the list page must
+			// still work when it fails, and icon requests fall back to the
+			// per-icon query.
+			slog.Debug("Unable to preload feed icons", slog.Any("error", err))
+		}
+	}
+
 	return entries, totalCount, nil
+}
+
+// preloadFeedIcons collects the distinct icon identifiers referenced by the
+// returned entries and fetches them once. Without this, every rendered row
+// triggers its own icon lookup through the /feed-icon endpoint.
+func (e *EntryQueryBuilder) preloadFeedIcons(entries model.Entries) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	externalIconIDs := make([]string, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.Feed == nil || entry.Feed.Icon == nil || entry.Feed.Icon.ExternalIconID == "" {
+			continue
+		}
+		externalIconID := entry.Feed.Icon.ExternalIconID
+		if _, exists := seen[externalIconID]; exists {
+			continue
+		}
+		seen[externalIconID] = struct{}{}
+		externalIconIDs = append(externalIconIDs, externalIconID)
+	}
+
+	if len(externalIconIDs) == 0 {
+		return nil
+	}
+
+	return e.store.PreloadIconsByExternalIDs(externalIconIDs)
 }
 
 // GetEntryIDs returns a list of entry IDs that match the condition.

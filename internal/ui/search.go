@@ -31,7 +31,8 @@ func (h *handler) showSearchPage(w http.ResponseWriter, r *http.Request) {
 			WithSearchQuery(searchQuery).
 			WithoutContent().
 			WithOffset(offset).
-			WithLimit(user.EntriesPerPage)
+			WithLimit(user.EntriesPerPage).
+			WithFeedIconsPreload()
 
 		if unreadOnly {
 			builder = builder.WithStatuses(model.EntryStatusUnread)

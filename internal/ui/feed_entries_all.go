@@ -4,6 +4,7 @@
 package ui // import "miniflux.app/v2/internal/ui"
 
 import (
+	"log/slog"
 	"net/http"
 
 	"miniflux.app/v2/internal/http/request"
@@ -30,6 +31,10 @@ func (h *handler) showFeedEntriesAllPage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if err := h.store.PreloadFeedIcon(feed); err != nil {
+		slog.Debug("Unable to preload feed icon", slog.Any("error", err))
+	}
+
 	offset := request.QueryIntParam(r, "offset", 0)
 
 	entries, count, err := h.store.NewEntryQueryBuilder(user.ID).
@@ -39,6 +44,7 @@ func (h *handler) showFeedEntriesAllPage(w http.ResponseWriter, r *http.Request)
 		WithoutContent().
 		WithOffset(offset).
 		WithLimit(user.EntriesPerPage).
+		WithFeedIconsPreload().
 		GetEntriesWithCount()
 	if err != nil {
 		response.HTMLServerError(w, r, err)

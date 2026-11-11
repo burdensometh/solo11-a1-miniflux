@@ -40,6 +40,7 @@ func (h *handler) showCategoryEntriesStarredPage(w http.ResponseWriter, r *http.
 		WithoutContent().
 		WithOffset(offset).
 		WithLimit(user.EntriesPerPage).
+		WithFeedIconsPreload().
 		GetEntriesWithCount()
 	if err != nil {
 		response.HTMLServerError(w, r, err)
