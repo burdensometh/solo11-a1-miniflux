@@ -45,6 +45,13 @@ type Entry struct {
 	Enclosures  EnclosureList `json:"enclosures"`
 	Feed        *Feed         `json:"feed,omitempty"`
 	Tags        []string      `json:"tags"`
+
+	// CursorTime is the normalized timestamp used by the incremental refresh
+	// cursor. It is derived from the source format's modification/publication
+	// fields and stays zero when the feed provides no usable timestamp. It is
+	// intentionally not exposed via the API and not persisted: the persisted
+	// cursor lives in the feed_cursors table.
+	CursorTime time.Time `json:"-"`
 }
 
 func NewEntry() *Entry {

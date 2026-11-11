@@ -1590,4 +1590,20 @@ var migrations = [...]func(tx *sql.Tx) error{
 		_, err = tx.Exec(sql)
 		return err
 	},
+	func(tx *sql.Tx) (err error) {
+		// feed_cursors stores the incremental parsing high-water mark per
+		// feed. The watermark is a normalized UTC instant; tie and undated
+		// hashes are stored as text arrays.
+		sql := `
+			CREATE TABLE feed_cursors (
+				feed_id bigint NOT NULL PRIMARY KEY
+					REFERENCES feeds(id) ON DELETE CASCADE,
+				watermark timestamptz NOT NULL DEFAULT 'epoch',
+				tie_hashes text[] NOT NULL DEFAULT '{}',
+				undated_hashes text[] NOT NULL DEFAULT '{}'
+			);
+		`
+		_, err = tx.Exec(sql)
+		return err
+	},
 }

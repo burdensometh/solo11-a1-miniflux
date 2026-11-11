@@ -12,6 +12,7 @@ import (
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/reader/date"
+	"miniflux.app/v2/internal/reader/incremental"
 	"miniflux.app/v2/internal/reader/language"
 	"miniflux.app/v2/internal/reader/sanitizer"
 	"miniflux.app/v2/internal/urllib"
@@ -93,6 +94,10 @@ func (r *rdfAdapter) buildFeed(baseURL string) *model.Feed {
 				entry.Date = itemDate
 			}
 		}
+
+		// RSS 1.0 (RDF) has no modification element: dc:date is the only
+		// ordering signal; a missing value leaves the entry undated.
+		entry.CursorTime = incremental.ParseCursorTime(item.DublinCoreDate)
 
 		// Populate the entry author.
 		switch {

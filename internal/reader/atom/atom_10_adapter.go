@@ -12,6 +12,7 @@ import (
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/reader/date"
+	"miniflux.app/v2/internal/reader/incremental"
 	"miniflux.app/v2/internal/reader/language"
 	"miniflux.app/v2/internal/reader/sanitizer"
 	"miniflux.app/v2/internal/urllib"
@@ -151,6 +152,11 @@ func (a *atom10Adapter) populateEntries(siteURL string) model.Entries {
 		if entry.Date.IsZero() {
 			entry.Date = time.Now()
 		}
+
+		// Cursor time follows the modification field first: atom:updated is
+		// mandatory in Atom 1.0 and is what moves when an entry is edited.
+		// A zero result marks the entry as undated (tracked by hash only).
+		entry.CursorTime = incremental.ParseCursorTime(atomEntry.Updated, atomEntry.Published)
 
 		// Populate categories.
 		entry.Tags = atomEntry.Categories.CategoryNames()

@@ -17,6 +17,7 @@ import (
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/reader/date"
+	"miniflux.app/v2/internal/reader/incremental"
 	"miniflux.app/v2/internal/reader/language"
 	"miniflux.app/v2/internal/reader/sanitizer"
 	"miniflux.app/v2/internal/urllib"
@@ -87,6 +88,11 @@ func (r *rssAdapter) buildFeed(baseURL string) *model.Feed {
 		entry.Date = findEntryDate(&item)
 		entry.Content = findEntryContent(&item)
 		entry.Enclosures = findEntryEnclosures(&item, feed.SiteURL)
+
+		// RSS 2.0 has no modification field: pubDate (or dc:date in hybrid
+		// feeds) is the only ordering signal. A missing/unparseable value
+		// yields a zero cursor time and the entry is tracked by hash only.
+		entry.CursorTime = incremental.ParseCursorTime(item.PubDate, item.DublinCoreDate)
 
 		// Populate the entry URL.
 		entryURL := findEntryURL(&item)

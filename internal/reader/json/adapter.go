@@ -14,6 +14,7 @@ import (
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/reader/date"
+	"miniflux.app/v2/internal/reader/incremental"
 	"miniflux.app/v2/internal/reader/language"
 	"miniflux.app/v2/internal/reader/sanitizer"
 	"miniflux.app/v2/internal/urllib"
@@ -146,6 +147,10 @@ func (j *JSONAdapter) BuildFeed(baseURL string) *model.Feed {
 		if entry.Date.IsZero() {
 			entry.Date = time.Now()
 		}
+
+		// JSON Feed's modification field (date_modified) leads; the
+		// publication field (date_published) is the fallback.
+		entry.CursorTime = incremental.ParseCursorTime(item.DateModified, item.DatePublished)
 
 		// Populate the entry author.
 		authorNames := make([]string, 0, len(j.jsonFeed.Authors)+len(item.Authors)+1+1)

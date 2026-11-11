@@ -11,6 +11,7 @@ import (
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/reader/date"
+	"miniflux.app/v2/internal/reader/incremental"
 	"miniflux.app/v2/internal/reader/language"
 	"miniflux.app/v2/internal/reader/sanitizer"
 	"miniflux.app/v2/internal/urllib"
@@ -114,6 +115,10 @@ func (a *atom03Adapter) buildFeed(baseURL string) *model.Feed {
 		if entry.Date.IsZero() {
 			entry.Date = time.Now()
 		}
+
+		// Atom 0.3's modification field is "modified"; "issued" is its
+		// publication field and "created" the last-resort fallback.
+		entry.CursorTime = incremental.ParseCursorTime(atomEntry.Modified, atomEntry.Issued, atomEntry.Created)
 
 		// Generate the entry hash.
 		for _, value := range []string{atomEntry.ID, atomEntry.Links.originalLink()} {

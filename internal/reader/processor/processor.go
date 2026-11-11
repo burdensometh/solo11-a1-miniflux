@@ -17,13 +17,17 @@ import (
 )
 
 // ProcessFeedEntries applies filters, rewrite rules, and sanitization to feed entries.
-func ProcessFeedEntries(store *storage.Storage, feed *model.Feed, userID int64) {
+// It returns the entries that survived the block/keep filter rules and were
+// therefore handed to the storage layer. Entries filtered out here must not be
+// considered processed by the incremental cursor, otherwise they could never be
+// ingested after the filter rules change.
+func ProcessFeedEntries(store *storage.Storage, feed *model.Feed, userID int64) model.Entries {
 	var filteredEntries model.Entries
 
 	user, storeErr := store.UserByID(userID)
 	if storeErr != nil {
 		slog.Error("Database error", slog.Any("error", storeErr))
-		return
+		return nil
 	}
 
 	// The errors are handled in RemoveTrackingParameters.
@@ -89,4 +93,5 @@ func ProcessFeedEntries(store *storage.Storage, feed *model.Feed, userID int64) 
 	}
 
 	feed.Entries = filteredEntries
+	return filteredEntries
 }

@@ -16,6 +16,7 @@ import (
 	"miniflux.app/v2/internal/proxyrotator"
 	"miniflux.app/v2/internal/reader/fetcher"
 	"miniflux.app/v2/internal/reader/icon"
+	"miniflux.app/v2/internal/reader/incremental"
 	"miniflux.app/v2/internal/reader/parser"
 	"miniflux.app/v2/internal/reader/processor"
 	"miniflux.app/v2/internal/storage"
@@ -297,6 +298,28 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 			return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
 		}
 
+		// Load the incremental cursor. On a forced refresh it is not used for
+		// filtering (every entry is reprocessed), but it still drives cursor
+		// advancement afterwards so the stored watermark is preserved.
+		var cursor *incremental.FeedCursor
+		cursor, storeErr = store.FeedCursor(feedID)
+		if storeErr != nil {
+			localizedError := locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
+			return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
+		}
+
+		allParsedEntries := updatedFeed.Entries
+		if !forceRefresh {
+			updatedFeed.Entries = cursor.Filter(allParsedEntries)
+		}
+		slog.Debug("Incremental cursor applied",
+			slog.Int64("feed_id", feedID),
+			slog.Bool("force_refresh", forceRefresh),
+			slog.Int("parsed_entry_count", len(allParsedEntries)),
+			slog.Int("admitted_entry_count", len(updatedFeed.Entries)),
+			slog.Int("skipped_entry_count", len(allParsedEntries)-len(updatedFeed.Entries)),
+		)
+
 		// Use the RSS TTL value, or the Cache-Control or Expires HTTP headers if available.
 		// Otherwise, we use the default value from the configuration (min interval parameter).
 		feedTTLValue := updatedFeed.TTL
@@ -320,13 +343,25 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 		)
 
 		originalFeed.Entries = updatedFeed.Entries
-		processor.ProcessFeedEntries(store, originalFeed, userID)
+		processedEntries := processor.ProcessFeedEntries(store, originalFeed, userID)
 
 		// We skip updating existing entries if the feed has ignore_entry_updates enabled.
 		// Unless it is forced to refresh.
 		updateExistingEntries := forceRefresh || !originalFeed.IgnoreEntryUpdates
 		newEntries, storeErr := store.RefreshFeedEntries(originalFeed.UserID, originalFeed.ID, originalFeed.Entries, updateExistingEntries)
 		if storeErr != nil {
+			localizedError := locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
+			return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
+		}
+
+		// The storage transaction for every admitted entry has committed, so
+		// the watermark can advance. Advancing before this point would skip
+		// entries on the next refresh after a crash; advancing after it cannot
+		// duplicate anything, since (feed_id, hash) uniqueness still guards
+		// any entry that gets re-admitted. Entries removed by filter rules are
+		// excluded so they remain admissible if the rules change later.
+		nextCursor := cursor.Advance(allParsedEntries, processedEntries)
+		if storeErr := store.UpsertFeedCursor(feedID, nextCursor); storeErr != nil {
 			localizedError := locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
 			return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
 		}
