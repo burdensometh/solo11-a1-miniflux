@@ -352,6 +352,30 @@ type EntryIDsResultSet struct {
 	EntryIDs []int64 `json:"entry_ids"`
 }
 
+// BatchEntryModificationRequest represents a batch request to modify the
+// status and/or the starred state of several entries. At least one of the
+// Status or Starred fields must be set.
+type BatchEntryModificationRequest struct {
+	EntryIDs []int64 `json:"entry_ids"`
+	Status   string  `json:"status,omitempty"`
+	Starred  *bool   `json:"starred,omitempty"`
+}
+
+// BatchEntryResult represents the outcome of a single entry within a batch update.
+type BatchEntryResult struct {
+	EntryID int64  `json:"entry_id"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// BatchEntryModificationResult represents the per-entry outcomes of a batch update.
+type BatchEntryModificationResult struct {
+	Total   int                `json:"total"`
+	Updated int                `json:"updated"`
+	Failed  int                `json:"failed"`
+	Results []BatchEntryResult `json:"results"`
+}
+
 // VersionResponse represents the version and the build information of the Miniflux instance.
 type VersionResponse struct {
 	Version   string `json:"version"`

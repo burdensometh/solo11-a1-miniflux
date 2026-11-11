@@ -1403,3 +1403,58 @@ func TestEntryIDsWithCombinedFilter(t *testing.T) {
 		t.Fatalf("Expected %s, got %s", asJSON(expected), asJSON(res))
 	}
 }
+
+func TestBatchUpdateEntries(t *testing.T) {
+	expected := &BatchEntryModificationResult{
+		Total:   3,
+		Updated: 2,
+		Failed:  1,
+		Results: []BatchEntryResult{
+			{EntryID: 1, Success: true},
+			{EntryID: 2, Success: true},
+			{EntryID: 999999999, Success: false, Error: "entry not found or does not belong to the authenticated user"},
+		},
+	}
+
+	client := NewClientWithOptions(
+		"http://mf",
+		WithHTTPClient(
+			newFakeHTTPClient(t, func(t *testing.T, req *http.Request) *http.Response {
+				expectRequest(t, http.MethodPost, "http://mf/v1/entries/batch", func(r io.Reader) {
+					expectFromJSON(t, r, &BatchEntryModificationRequest{
+						EntryIDs: []int64{1, 999999999, 2},
+						Status:   EntryStatusRead,
+					})
+				}, req)
+				return jsonResponseFrom(t, http.StatusOK, http.Header{}, expected)
+			})))
+
+	res, err := client.BatchUpdateEntriesContext(t.Context(), &BatchEntryModificationRequest{
+		EntryIDs: []int64{1, 999999999, 2},
+		Status:   EntryStatusRead,
+	})
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if !reflect.DeepEqual(res, expected) {
+		t.Fatalf("Expected %s, got %s", asJSON(expected), asJSON(res))
+	}
+}
+
+func TestBatchUpdateEntriesRejectsBadRequest(t *testing.T) {
+	client := NewClientWithOptions(
+		"http://mf",
+		WithHTTPClient(
+			newFakeHTTPClient(t, func(t *testing.T, req *http.Request) *http.Response {
+				return jsonResponseFrom(t, http.StatusBadRequest, http.Header{}, map[string]string{
+					"error_message": "the list of entries cannot be empty",
+				})
+			})))
+
+	if _, err := client.BatchUpdateEntriesContext(t.Context(), &BatchEntryModificationRequest{
+		EntryIDs: []int64{},
+		Status:   EntryStatusRead,
+	}); err == nil {
+		t.Fatal("Expected a bad request error, got nil")
+	}
+}

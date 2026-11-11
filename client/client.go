@@ -1061,6 +1061,33 @@ func (c *Client) UpdateEntriesStarredContext(ctx context.Context, entryIDs []int
 	return err
 }
 
+// BatchUpdateEntries updates the status and/or the starred state of a batch of
+// entries and returns the outcome of each entry individually. An entry that
+// does not exist or does not belong to the authenticated user is reported as a
+// failure instead of causing the whole batch to fail.
+func (c *Client) BatchUpdateEntries(requestChanges *BatchEntryModificationRequest) (*BatchEntryModificationResult, error) {
+	ctx, cancel := withDefaultTimeout()
+	defer cancel()
+	return c.BatchUpdateEntriesContext(ctx, requestChanges)
+}
+
+// BatchUpdateEntriesContext updates the status and/or the starred state of a
+// batch of entries and returns the outcome of each entry individually.
+func (c *Client) BatchUpdateEntriesContext(ctx context.Context, requestChanges *BatchEntryModificationRequest) (*BatchEntryModificationResult, error) {
+	body, err := c.request.Post(ctx, "/v1/entries/batch", requestChanges)
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+
+	var result BatchEntryModificationResult
+	if err := json.NewDecoder(body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("miniflux: response error (%v)", err)
+	}
+
+	return &result, nil
+}
+
 // UpdateEntry updates an entry.
 func (c *Client) UpdateEntry(entryID int64, entryChanges *EntryModificationRequest) (*Entry, error) {
 	ctx, cancel := withDefaultTimeout()

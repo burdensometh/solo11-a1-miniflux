@@ -38,6 +38,30 @@ func ValidateEntriesStatusAndStarredUpdateRequest(request *model.EntriesStatusUp
 	return nil
 }
 
+// ValidateBatchEntriesUpdateRequest validates a batch entry update request.
+// It enforces the batch size limit and makes sure at least one of the status
+// or starred fields is specified. Per-entry ownership is checked by the storage
+// layer and reported individually in the response.
+func ValidateBatchEntriesUpdateRequest(request *model.BatchEntriesUpdateRequest) error {
+	if len(request.EntryIDs) == 0 {
+		return errors.New(`the list of entries cannot be empty`)
+	}
+
+	if len(request.EntryIDs) > model.MaxBatchEntryUpdateLimit {
+		return fmt.Errorf(`the number of entry IDs cannot exceed %d`, model.MaxBatchEntryUpdateLimit)
+	}
+
+	if request.Status == "" && request.Starred == nil {
+		return errors.New(`either the status or the starred field must be specified`)
+	}
+
+	if request.Status != "" {
+		return ValidateEntryStatus(request.Status)
+	}
+
+	return nil
+}
+
 // ValidateEntryStatus makes sure the entry status is valid.
 func ValidateEntryStatus(status string) error {
 	switch status {

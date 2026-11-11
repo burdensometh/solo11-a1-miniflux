@@ -463,6 +463,83 @@ func (s *Storage) SetEntriesStarredState(userID int64, entryIDs []int64, starred
 	return nil
 }
 
+// BatchUpdateEntries updates the status and/or the starred state of the given
+// entries inside a single transaction. Entries that do not exist or do not
+// belong to the given user are left untouched and their IDs are returned in
+// the NotFoundIDs list, instead of causing the whole batch to fail.
+func (s *Storage) BatchUpdateEntries(userID int64, entryIDs []int64, status string, starred *bool) ([]int64, []int64, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, nil, fmt.Errorf(`store: unable to start transaction: %v`, err)
+	}
+	defer tx.Rollback()
+
+	ownedIDs := make([]int64, 0, len(entryIDs))
+	rows, err := tx.Query(`SELECT id FROM entries WHERE user_id=$1 AND id=ANY($2)`, userID, pq.Array(entryIDs))
+	if err != nil {
+		return nil, nil, fmt.Errorf(`store: unable to fetch entries %v: %v`, entryIDs, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var entryID int64
+		if scanErr := rows.Scan(&entryID); scanErr != nil {
+			return nil, nil, fmt.Errorf(`store: unable to fetch entry row: %v`, scanErr)
+		}
+		ownedIDs = append(ownedIDs, entryID)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf(`store: error iterating on entry rows: %v`, err)
+	}
+
+	if status != "" {
+		query := `
+			UPDATE
+				entries
+			SET
+				status=$1,
+				changed_at=now()
+			WHERE
+				user_id=$2 AND
+				id=ANY($3)
+		`
+		if _, err = tx.Exec(query, status, userID, pq.Array(ownedIDs)); err != nil {
+			return nil, nil, fmt.Errorf(`store: unable to update entries statuses %v: %v`, ownedIDs, err)
+		}
+	}
+
+	if starred != nil {
+		query := `UPDATE entries SET starred=$1, changed_at=now() WHERE user_id=$2 AND id=ANY($3)`
+		if _, err = tx.Exec(query, *starred, userID, pq.Array(ownedIDs)); err != nil {
+			return nil, nil, fmt.Errorf(`store: unable to update the starred state %v: %v`, ownedIDs, err)
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, nil, fmt.Errorf(`store: unable to commit batch entry update: %v`, err)
+	}
+
+	ownedSet := make(map[int64]struct{}, len(ownedIDs))
+	for _, id := range ownedIDs {
+		ownedSet[id] = struct{}{}
+	}
+
+	notFoundIDs := make([]int64, 0)
+	seen := make(map[int64]struct{}, len(entryIDs))
+	for _, id := range entryIDs {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		if _, ok := ownedSet[id]; !ok {
+			notFoundIDs = append(notFoundIDs, id)
+		}
+	}
+
+	return ownedIDs, notFoundIDs, nil
+}
+
 // ToggleStarred toggles entry starred value.
 func (s *Storage) ToggleStarred(userID int64, entryID int64) error {
 	query := `UPDATE entries SET starred = NOT starred, changed_at=now() WHERE user_id=$1 AND id=$2`

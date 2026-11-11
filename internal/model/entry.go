@@ -23,6 +23,10 @@ const MaxEntryLimit = 1000
 // for the entry ID list endpoints.
 const MaxEntryIDsLimit = 10000
 
+// MaxBatchEntryUpdateLimit is the maximum number of entry IDs accepted in a
+// single batch entry update request.
+const MaxBatchEntryUpdateLimit = 1000
+
 // Entry represents a feed item in the system.
 type Entry struct {
 	ID          int64         `json:"id"`
@@ -82,6 +86,31 @@ type EntriesStatusUpdateRequest struct {
 	EntryIDs []int64 `json:"entry_ids"`
 	Status   string  `json:"status"`
 	Starred  *bool   `json:"starred"`
+}
+
+// BatchEntriesUpdateRequest represents a request to change the status and/or
+// the starred state of a batch of entries. Per-entry results are returned, so
+// an entry that does not exist or does not belong to the authenticated user
+// does not cause the whole batch to fail.
+type BatchEntriesUpdateRequest struct {
+	EntryIDs []int64 `json:"entry_ids"`
+	Status   string  `json:"status"`
+	Starred  *bool   `json:"starred"`
+}
+
+// BatchEntryUpdateResult is the outcome of a single entry within a batch update.
+type BatchEntryUpdateResult struct {
+	EntryID int64  `json:"entry_id"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// BatchEntriesUpdateResult aggregates the per-entry outcomes of a batch update.
+type BatchEntriesUpdateResult struct {
+	Total   int                      `json:"total"`
+	Updated int                      `json:"updated"`
+	Failed  int                      `json:"failed"`
+	Results []BatchEntryUpdateResult `json:"results"`
 }
 
 // EntryUpdateRequest represents a request to update an entry.

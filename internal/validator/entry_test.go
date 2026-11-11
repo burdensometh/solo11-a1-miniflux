@@ -102,6 +102,63 @@ func TestValidateEntriesStatusAndStarredUpdateRequest(t *testing.T) {
 	}
 }
 
+func TestValidateBatchEntriesUpdateRequest(t *testing.T) {
+	starred := true
+
+	if err := ValidateBatchEntriesUpdateRequest(&model.BatchEntriesUpdateRequest{
+		Status:   model.EntryStatusRead,
+		EntryIDs: []int64{123, 456},
+	}); err != nil {
+		t.Errorf(`A valid request should not be rejected: %v`, err)
+	}
+
+	if err := ValidateBatchEntriesUpdateRequest(&model.BatchEntriesUpdateRequest{
+		Starred:  &starred,
+		EntryIDs: []int64{123},
+	}); err != nil {
+		t.Errorf(`A request with only the starred field should be accepted: %v`, err)
+	}
+
+	if err := ValidateBatchEntriesUpdateRequest(&model.BatchEntriesUpdateRequest{
+		Status:   model.EntryStatusRead,
+		Starred:  &starred,
+		EntryIDs: []int64{123},
+	}); err != nil {
+		t.Errorf(`A request with both status and starred should be accepted: %v`, err)
+	}
+
+	if err := ValidateBatchEntriesUpdateRequest(&model.BatchEntriesUpdateRequest{
+		Status: model.EntryStatusRead,
+	}); err == nil {
+		t.Error(`An empty list of entries should be rejected`)
+	}
+
+	if err := ValidateBatchEntriesUpdateRequest(&model.BatchEntriesUpdateRequest{
+		EntryIDs: []int64{123},
+	}); err == nil {
+		t.Error(`A request without status or starred should be rejected`)
+	}
+
+	if err := ValidateBatchEntriesUpdateRequest(&model.BatchEntriesUpdateRequest{
+		Status:   "invalid",
+		EntryIDs: []int64{123},
+	}); err == nil {
+		t.Error(`An invalid status should be rejected`)
+	}
+
+	tooManyIDs := make([]int64, model.MaxBatchEntryUpdateLimit+1)
+	for i := range tooManyIDs {
+		tooManyIDs[i] = int64(i + 1)
+	}
+
+	if err := ValidateBatchEntriesUpdateRequest(&model.BatchEntriesUpdateRequest{
+		Status:   model.EntryStatusRead,
+		EntryIDs: tooManyIDs,
+	}); err == nil {
+		t.Error(`A request exceeding the batch size limit should be rejected`)
+	}
+}
+
 func TestValidateEntryStatus(t *testing.T) {
 	for _, status := range []string{model.EntryStatusRead, model.EntryStatusUnread} {
 		if err := ValidateEntryStatus(status); err != nil {

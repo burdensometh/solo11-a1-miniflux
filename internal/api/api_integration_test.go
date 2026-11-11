@@ -3055,6 +3055,132 @@ func TestUpdateEntryStatusEndpoint(t *testing.T) {
 	}
 }
 
+func TestBatchUpdateEntriesEndpoint(t *testing.T) {
+	t.Parallel()
+
+	testConfig := newIntegrationTestConfig()
+	if !testConfig.isConfigured() {
+		t.Skip(skipIntegrationTestsMessage)
+	}
+
+	adminClient := miniflux.NewClient(testConfig.testBaseURL, testConfig.testAdminUsername, testConfig.testAdminPassword)
+
+	regularTestUser, err := adminClient.CreateUser(testConfig.genRandomUsername(), testConfig.testRegularPassword, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer adminClient.DeleteUser(regularTestUser.ID)
+
+	regularUserClient := miniflux.NewClient(testConfig.testBaseURL, regularTestUser.Username, testConfig.testRegularPassword)
+
+	feedID, err := regularUserClient.CreateFeed(&miniflux.FeedCreationRequest{
+		FeedURL: testConfig.testFeedURL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := regularUserClient.FeedEntries(feedID, nil)
+	if err != nil {
+		t.Fatalf(`Failed to get entries: %v`, err)
+	}
+
+	if len(result.Entries) < 2 {
+		t.Fatalf(`This test requires at least two entries, got %d`, len(result.Entries))
+	}
+
+	firstEntryID := result.Entries[0].ID
+	secondEntryID := result.Entries[1].ID
+	// An ID that does not exist for this user: mixing a valid and an invalid
+	// entry must not make the whole batch fail.
+	unknownEntryID := int64(999999999)
+
+	batchResult, err := regularUserClient.BatchUpdateEntries(&miniflux.BatchEntryModificationRequest{
+		EntryIDs: []int64{firstEntryID, unknownEntryID, secondEntryID, firstEntryID},
+		Status:   miniflux.EntryStatusRead,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if batchResult.Total != 3 {
+		t.Fatalf(`Expected 3 unique entries in the result, got %d`, batchResult.Total)
+	}
+
+	if batchResult.Updated != 2 {
+		t.Fatalf(`Expected 2 updated entries, got %d`, batchResult.Updated)
+	}
+
+	if batchResult.Failed != 1 {
+		t.Fatalf(`Expected 1 failed entry, got %d`, batchResult.Failed)
+	}
+
+	if len(batchResult.Results) != 3 {
+		t.Fatalf(`Expected 3 per-entry results, got %d`, len(batchResult.Results))
+	}
+
+	resultsByID := make(map[int64]miniflux.BatchEntryResult, len(batchResult.Results))
+	for _, entryResult := range batchResult.Results {
+		resultsByID[entryResult.EntryID] = entryResult
+	}
+
+	for _, entryID := range []int64{firstEntryID, secondEntryID} {
+		entryResult, ok := resultsByID[entryID]
+		if !ok {
+			t.Fatalf(`Missing result for entry #%d`, entryID)
+		}
+		if !entryResult.Success || entryResult.Error != "" {
+			t.Fatalf(`Entry #%d should have been updated successfully, got %+v`, entryID, entryResult)
+		}
+	}
+
+	failedResult, ok := resultsByID[unknownEntryID]
+	if !ok {
+		t.Fatal(`Missing result for the unknown entry ID`)
+	}
+	if failedResult.Success || failedResult.Error == "" {
+		t.Fatalf(`The unknown entry should be reported as failed, got %+v`, failedResult)
+	}
+
+	// The valid entries must have actually been marked as read.
+	for _, entryID := range []int64{firstEntryID, secondEntryID} {
+		entry, err := regularUserClient.Entry(entryID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry.Status != miniflux.EntryStatusRead {
+			t.Fatalf(`Expected entry #%d to be read, got %q`, entryID, entry.Status)
+		}
+	}
+
+	// A starred-only update must leave the status untouched.
+	boolPtr := func(b bool) *bool { return &b }
+	batchResult, err = regularUserClient.BatchUpdateEntries(&miniflux.BatchEntryModificationRequest{
+		EntryIDs: []int64{firstEntryID, unknownEntryID},
+		Starred:  boolPtr(true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if batchResult.Updated != 1 || batchResult.Failed != 1 {
+		t.Fatalf(`Expected 1 updated and 1 failed entry, got %+v`, batchResult)
+	}
+
+	entry, err := regularUserClient.Entry(firstEntryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !entry.Starred {
+		t.Fatal(`Expected the entry to be starred`)
+	}
+
+	if entry.Status != miniflux.EntryStatusRead {
+		t.Fatalf(`Expected the status to remain read, got %q`, entry.Status)
+	}
+}
+
 func TestUpdateEntriesStarredEndpoint(t *testing.T) {
 	t.Parallel()
 

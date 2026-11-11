@@ -237,6 +237,67 @@ func (h *handler) setEntryStatusAndStarredHandler(w http.ResponseWriter, r *http
 	response.NoContent(w, r)
 }
 
+// batchUpdateEntriesHandler applies a status and/or a starred update to a batch
+// of entries and reports the outcome of each entry individually. An entry that
+// does not exist or does not belong to the authenticated user is reported as a
+// failure but never causes the rest of the batch to fail.
+func (h *handler) batchUpdateEntriesHandler(w http.ResponseWriter, r *http.Request) {
+	var batchUpdateRequest model.BatchEntriesUpdateRequest
+	if err := json_parser.NewDecoder(r.Body).Decode(&batchUpdateRequest); err != nil {
+		response.JSONBadRequest(w, r, err)
+		return
+	}
+
+	if err := validator.ValidateBatchEntriesUpdateRequest(&batchUpdateRequest); err != nil {
+		response.JSONBadRequest(w, r, err)
+		return
+	}
+
+	_, notFoundIDs, err := h.store.BatchUpdateEntries(request.UserID(r), batchUpdateRequest.EntryIDs, batchUpdateRequest.Status, batchUpdateRequest.Starred)
+	if err != nil {
+		response.JSONServerError(w, r, err)
+		return
+	}
+
+	notFoundSet := make(map[int64]struct{}, len(notFoundIDs))
+	for _, entryID := range notFoundIDs {
+		notFoundSet[entryID] = struct{}{}
+	}
+
+	// Report one result per unique entry ID, in the order it was submitted.
+	seen := make(map[int64]struct{}, len(batchUpdateRequest.EntryIDs))
+	batchResult := &model.BatchEntriesUpdateResult{
+		Total:   0,
+		Results: make([]model.BatchEntryUpdateResult, 0, len(batchUpdateRequest.EntryIDs)),
+	}
+
+	for _, entryID := range batchUpdateRequest.EntryIDs {
+		if _, ok := seen[entryID]; ok {
+			continue
+		}
+		seen[entryID] = struct{}{}
+		batchResult.Total++
+
+		if _, ok := notFoundSet[entryID]; ok {
+			batchResult.Failed++
+			batchResult.Results = append(batchResult.Results, model.BatchEntryUpdateResult{
+				EntryID: entryID,
+				Success: false,
+				Error:   "entry not found or does not belong to the authenticated user",
+			})
+			continue
+		}
+
+		batchResult.Updated++
+		batchResult.Results = append(batchResult.Results, model.BatchEntryUpdateResult{
+			EntryID: entryID,
+			Success: true,
+		})
+	}
+
+	response.JSON(w, r, batchResult)
+}
+
 func (h *handler) toggleStarredHandler(w http.ResponseWriter, r *http.Request) {
 	entryID := request.RouteInt64Param(r, "entryID")
 	if entryID == 0 {

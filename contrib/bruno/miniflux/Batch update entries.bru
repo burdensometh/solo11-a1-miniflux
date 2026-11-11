@@ -1,0 +1,24 @@
+meta {
+  name: Batch update entries
+  type: http
+  seq: 36
+}
+
+post {
+  url: {{minifluxBaseURL}}/v1/entries/batch
+  body: json
+  auth: basic
+}
+
+auth:basic {
+  username: {{minifluxUsername}}
+  password: {{minifluxPassword}}
+}
+
+body:json {
+  {
+    "entry_ids": [1698, 1699, 999999999],
+    "status": "read",
+    "starred": true
+  }
+}
