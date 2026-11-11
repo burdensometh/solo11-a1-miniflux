@@ -1,0 +1,52 @@
+{
+  "format": "rss",
+  "title": "http://example.org/",
+  "description": "",
+  "feed_url": "https://example.org/blog/feed",
+  "site_url": "http://example.org/",
+  "language": "",
+  "icon_url": "",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "http://example.org/spaced/article",
+      "title": "AT\u0026T deal",
+      "author": "",
+      "content": "desc",
+      "hash": "248ae0f71cc54b846007d7ff4562afa6afa719fa58f83701af8bed56d1a0b6b4",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": [
+        {
+          "url": "http://example.org/media/vid.mp4",
+          "mime_type": "video/mp4",
+          "size": 99
+        },
+        {
+          "url": "http://example.org/peer/link",
+          "mime_type": "application/octet-stream",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://example.org/two",
+      "title": "http://example.org/two",
+      "author": "",
+      "content": "",
+      "hash": "bd3535317465604bbfbc67397cfec6ca1708786bc878dddc76e6402497cfb615",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    }
+  ]
+}

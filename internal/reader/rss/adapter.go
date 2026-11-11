@@ -4,20 +4,12 @@
 package rss // import "miniflux.app/v2/internal/reader/rss"
 
 import (
-	"cmp"
-	"html"
-	"iter"
-	"log/slog"
 	"path"
-	"slices"
 	"strconv"
 	"strings"
-	"time"
 
-	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/model"
-	"miniflux.app/v2/internal/reader/date"
-	"miniflux.app/v2/internal/reader/language"
+	"miniflux.app/v2/internal/reader/normalize"
 	"miniflux.app/v2/internal/reader/sanitizer"
 	"miniflux.app/v2/internal/urllib"
 )
@@ -27,154 +19,157 @@ type rssAdapter struct {
 }
 
 func (r *rssAdapter) buildFeed(baseURL string) *model.Feed {
-	feed := &model.Feed{
-		Title:       html.UnescapeString(strings.TrimSpace(r.rss.Channel.Title)),
-		FeedURL:     strings.TrimSpace(baseURL),
-		SiteURL:     strings.TrimSpace(r.rss.Channel.Link),
-		Description: strings.TrimSpace(r.rss.Channel.Description),
-		Language:    language.Normalize(r.rss.Channel.Language),
+	feed := normalize.NewFeed(baseURL)
+	feed.Title = htmlUnescapeTrim(r.rss.Channel.Title)
+	feed.FeedURL = baseURL
+	feed.SiteURL = strings.TrimSpace(r.rss.Channel.Link)
+	feed.Description = strings.TrimSpace(r.rss.Channel.Description)
+
+	// Hybrid feeds declare the channel language with <dc:language> instead
+	// of <language>.
+	feed.Language = firstNonEmpty(r.rss.Channel.Language, r.rss.Channel.DublinCoreLanguage)
+
+	if r.rss.Channel.TTL != "" {
+		if ttl, err := strconv.Atoi(r.rss.Channel.TTL); err == nil {
+			feed.TTLMinutes = ttl
+		}
 	}
 
-	// Hybrid feeds declare the channel language with <dc:language>
-	// instead of <language>.
-	if feed.Language == "" {
-		feed.Language = language.Normalize(r.rss.Channel.DublinCoreLanguage)
+	if r.rss.Channel.Image != nil {
+		feed.IconCandidates = []string{r.rss.Channel.Image.URL}
 	}
 
-	// Ensure the Site URL is absolute.
-	if absoluteSiteURL, err := urllib.ResolveToAbsoluteURL(baseURL, feed.SiteURL); err == nil {
-		feed.SiteURL = absoluteSiteURL
-	}
-
-	// Try to find the feed URL from the Channel links.
+	// The Atom-style rel="self" channel link overrides the feed URL when it
+	// resolves to an absolute URL.
 	for _, link := range r.rss.Channel.Links {
 		href := strings.TrimSpace(link.Href)
 		if href == "" || link.Rel != "self" {
 			continue
 		}
+		feed.FeedURLOverrides = append(feed.FeedURLOverrides, href)
+	}
 
-		if absoluteFeedURL, err := urllib.ResolveToAbsoluteURL(feed.FeedURL, href); err == nil {
-			feed.FeedURL = absoluteFeedURL
-			break
+	for i := range r.rss.Channel.Items {
+		r.buildEntry(feed, &r.rss.Channel.Items[i])
+	}
+
+	return feed.Build()
+}
+
+// buildEntry converts one RSS item into the neutral entry.
+func (r *rssAdapter) buildEntry(feed *normalize.Feed, item *rssItem) {
+	entry := feed.NewEntry()
+
+	entry.Content = findEntryContent(item)
+	entry.Enclosures = r.collectEnclosures(item)
+	entry.EnclosureURLRewriter = feedburnerEnclosureRewriter(item)
+
+	entryURL := findEntryURL(item)
+	entry.URL = entryURL
+	entry.SiteURLFallback = true
+	entry.EnclosureFallback = true
+
+	entry.Title = findEntryTitle(item)
+	entry.TitleContentFallback = true
+
+	if author := findEntryAuthor(item); author != "" {
+		entry.Authors = []string{author}
+	} else if feedAuthor := findFeedAuthor(&r.rss.Channel); feedAuthor != "" {
+		entry.Authors = []string{feedAuthor}
+	}
+
+	entry.Language = item.DublinCoreLanguage
+
+	// Date: dc:date wins over pubDate; both fall back to time.Now().
+	entry.DateCandidates = []string{firstNonEmpty(item.DublinCoreDate, item.PubDate)}
+	entry.DateFallbackNow = true
+
+	// Hash: a present <guid> drives the duplicate-GUID disambiguation.
+	// Otherwise the raw entry URL hashes, and the last resort is the
+	// normalized title together with the content.
+	entry.HashTitleContentFallback = true
+	if item.GUID.Data != "" {
+		entry.ID = item.GUID.Data
+		entry.TrackDuplicateID = true
+	} else {
+		entry.HashCandidates = []string{entryURL}
+	}
+
+	if commentsURL := strings.TrimSpace(item.CommentsURL); commentsURL != "" && urllib.IsAbsoluteURL(commentsURL) {
+		entry.CommentsURL = commentsURL
+	}
+
+	if item.ItunesDuration != "" {
+		if duration, err := getDurationInMinutes(item.ItunesDuration); err == nil {
+			entry.ReadingTime = duration
 		}
 	}
 
-	// Fallback to the site URL if the title is empty.
-	if feed.Title == "" {
-		feed.Title = feed.SiteURL
+	entry.Tags = findEntryTags(item)
+	if len(entry.Tags) == 0 {
+		entry.Tags = findFeedTags(&r.rss.Channel)
+	}
+	entry.TagTrimmer = strings.TrimSpace
+}
+
+// collectEnclosures gathers media thumbnails, native enclosures, media
+// contents and peer links in the historical order.
+func (r *rssAdapter) collectEnclosures(item *rssItem) []normalize.Enclosure {
+	mediaThumbnails := item.AllMediaThumbnails()
+	mediaContents := item.AllMediaContents()
+	mediaPeerLinks := item.AllMediaPeerLinks()
+	capacity := len(mediaThumbnails) + len(item.Enclosures) + len(mediaContents) + len(mediaPeerLinks)
+	enclosures := make([]normalize.Enclosure, 0, capacity)
+
+	for _, mediaThumbnail := range mediaThumbnails {
+		enclosures = append(enclosures, normalize.Enclosure{
+			URL:      mediaThumbnail.URL,
+			MimeType: mediaThumbnail.MimeType(),
+			Size:     mediaThumbnail.Size(),
+		})
 	}
 
-	// Get TTL if defined.
-	if r.rss.Channel.TTL != "" {
-		if ttl, err := strconv.Atoi(r.rss.Channel.TTL); err == nil {
-			feed.TTL = time.Duration(ttl) * time.Minute
-		}
+	for _, enclosure := range item.Enclosures {
+		enclosures = append(enclosures, normalize.Enclosure{
+			URL:      enclosure.URL,
+			MimeType: enclosure.Type,
+			Size:     enclosure.Size(),
+		})
 	}
 
-	// Get the feed icon URL if defined.
-	if r.rss.Channel.Image != nil {
-		if absoluteIconURL, err := urllib.ResolveToAbsoluteURL(feed.SiteURL, r.rss.Channel.Image.URL); err == nil {
-			feed.IconURL = absoluteIconURL
-		}
+	for _, mediaContent := range mediaContents {
+		enclosures = append(enclosures, normalize.Enclosure{
+			URL:      mediaContent.URL,
+			MimeType: mediaContent.MimeType(),
+			Size:     mediaContent.Size(),
+		})
 	}
 
-	// Track GUIDs already seen in this feed to disambiguate items from
-	// non-conformant feeds that reuse the same <guid> for every entry.
-	seenGUIDs := make(map[string]int)
-
-	for _, item := range r.rss.Channel.Items {
-		entry := model.NewEntry()
-		entry.Date = findEntryDate(&item)
-		entry.Content = findEntryContent(&item)
-		entry.Enclosures = findEntryEnclosures(&item, feed.SiteURL)
-
-		// Populate the entry URL.
-		entryURL := findEntryURL(&item)
-		if entryURL != "" {
-			entry.URL = entryURL
-			if absoluteEntryURL, err := urllib.ResolveToAbsoluteURL(feed.SiteURL, entryURL); err == nil {
-				entry.URL = absoluteEntryURL
-			}
-		}
-
-		if entry.URL == "" {
-			// Fallback to the feed URL if no entry URL is found.
-			entry.URL = feed.SiteURL
-
-			// Fallback to the first enclosure URL if it exists.
-			if len(entry.Enclosures) > 0 && entry.Enclosures[0].URL != "" {
-				entry.URL = entry.Enclosures[0].URL
-			}
-		}
-
-		// Populate the entry title.
-		entry.Title = findEntryTitle(&item)
-		if entry.Title == "" {
-			entry.Title = sanitizer.TruncateHTML(entry.Content, 100)
-			if entry.Title == "" {
-				entry.Title = entry.URL
-			}
-		}
-
-		entry.Author = findEntryAuthor(&item)
-		if entry.Author == "" {
-			entry.Author = findFeedAuthor(&r.rss.Channel)
-		}
-
-		// Populate the entry language, falling back to the channel
-		// language: items are part of the channel's content.
-		entry.Language = language.Normalize(item.DublinCoreLanguage)
-		if entry.Language == "" {
-			entry.Language = feed.Language
-		}
-
-		// Generate the entry hash.
-		//
-		// The RSS 2.0 spec requires <guid> to uniquely identify the item, but
-		// some feeds ship the same GUID for every entry. Keep the first
-		// occurrence stable (so existing stored entries still match) and
-		// disambiguate later collisions using the entry URL or, as a last
-		// resort, the item position.
-		switch {
-		case item.GUID.Data != "":
-			n := seenGUIDs[item.GUID.Data]
-			seenGUIDs[item.GUID.Data] = n + 1
-			switch {
-			case n == 0:
-				entry.Hash = crypto.SHA256(item.GUID.Data)
-			case entry.URL != "":
-				entry.Hash = crypto.SHA256(item.GUID.Data + "|" + entry.URL)
-			default:
-				entry.Hash = crypto.SHA256(item.GUID.Data + "|" + strconv.Itoa(n))
-			}
-		case entryURL != "":
-			entry.Hash = crypto.SHA256(entryURL)
-		default:
-			entry.Hash = crypto.SHA256(entry.Title + entry.Content)
-		}
-
-		// Find CommentsURL if defined.
-		if absoluteCommentsURL := strings.TrimSpace(item.CommentsURL); absoluteCommentsURL != "" && urllib.IsAbsoluteURL(absoluteCommentsURL) {
-			entry.CommentsURL = absoluteCommentsURL
-		}
-
-		// Set podcast listening time.
-		if item.ItunesDuration != "" {
-			if duration, err := getDurationInMinutes(item.ItunesDuration); err == nil {
-				entry.ReadingTime = duration
-			}
-		}
-
-		// Populate entry categories.
-		entry.Tags = findEntryTags(&item)
-		if len(entry.Tags) == 0 {
-			entry.Tags = findFeedTags(&r.rss.Channel)
-		}
-
-		feed.Entries = append(feed.Entries, entry)
+	for _, mediaPeerLink := range mediaPeerLinks {
+		enclosures = append(enclosures, normalize.Enclosure{
+			URL:      mediaPeerLink.URL,
+			MimeType: mediaPeerLink.MimeType(),
+			Size:     mediaPeerLink.Size(),
+		})
 	}
 
-	return feed
+	return enclosures
+}
+
+// feedburnerEnclosureRewriter returns the FeedBurner origEnclosureLink
+// rewriter for an item, or nil when the element is absent.
+func feedburnerEnclosureRewriter(item *rssItem) func(string) string {
+	if item.FeedBurnerEnclosureLink == "" {
+		return nil
+	}
+
+	return func(enclosureURL string) string {
+		filename := path.Base(item.FeedBurnerEnclosureLink)
+		if strings.HasSuffix(enclosureURL, filename) {
+			return item.FeedBurnerEnclosureLink
+		}
+		return enclosureURL
+	}
 }
 
 func findFeedAuthor(rssChannel *rssChannel) string {
@@ -215,7 +210,7 @@ func findEntryTitle(rssItem *rssItem) string {
 		title = rssItem.DublinCoreTitle
 	}
 
-	return html.UnescapeString(html.UnescapeString(strings.TrimSpace(title)))
+	return htmlUnescapeTrim(title)
 }
 
 func findEntryURL(rssItem *rssItem) string {
@@ -233,7 +228,7 @@ func findEntryURL(rssItem *rssItem) string {
 
 	// Specs: https://cyber.harvard.edu/rss/rss.html#ltguidgtSubelementOfLtitemgt
 	// isPermaLink is optional, its default value is true.
-	// If its value is false, the guid may not be assumed to be a url, or a url to anything in particular.
+	// If its value is false, the guid may not be assumed to be a url.
 	if rssItem.GUID.IsPermaLink == "true" || rssItem.GUID.IsPermaLink == "" {
 		return strings.TrimSpace(rssItem.GUID.Data)
 	}
@@ -254,29 +249,6 @@ func findEntryContent(rssItem *rssItem) string {
 		}
 	}
 	return ""
-}
-
-func findEntryDate(rssItem *rssItem) time.Time {
-	value := rssItem.PubDate
-	if rssItem.DublinCoreDate != "" {
-		value = rssItem.DublinCoreDate
-	}
-
-	if value = strings.TrimSpace(value); value == "" {
-		return time.Now()
-	}
-
-	parsedDate, err := date.Parse(value)
-	if err != nil {
-		slog.Debug("Unable to parse date from RSS feed",
-			slog.String("date", value),
-			slog.String("guid", rssItem.GUID.Data),
-			slog.Any("error", err),
-		)
-		return time.Now()
-	}
-
-	return parsedDate
 }
 
 func findEntryAuthor(rssItem *rssItem) string {
@@ -309,165 +281,4 @@ func findEntryTags(rssItem *rssItem) []string {
 	tags = appendSortedSeq(tags, strings.TrimSpace, rssItem.MediaCategories.LabelsSeq())
 
 	return tags
-}
-
-func findEntryEnclosures(rssItem *rssItem, siteURL string) model.EnclosureList {
-	mediaThumbnails := rssItem.AllMediaThumbnails()
-	mediaContents := rssItem.AllMediaContents()
-	mediaPeerLinks := rssItem.AllMediaPeerLinks()
-	capacity := len(mediaThumbnails) + len(rssItem.Enclosures) + len(mediaContents) + len(mediaPeerLinks)
-	enclosures := make(model.EnclosureList, 0, capacity)
-	duplicates := make(map[string]bool, capacity)
-
-	for _, mediaThumbnail := range mediaThumbnails {
-		mediaURL := strings.TrimSpace(mediaThumbnail.URL)
-		if mediaURL == "" {
-			continue
-		}
-
-		mediaURL, err := urllib.ResolveToAbsoluteURL(siteURL, mediaURL)
-		if err != nil {
-			slog.Debug("Unable to build absolute URL for media thumbnail",
-				slog.String("url", mediaThumbnail.URL),
-				slog.String("site_url", siteURL),
-				slog.Any("error", err),
-			)
-			continue
-		}
-
-		if _, found := duplicates[mediaURL]; found {
-			continue
-		}
-
-		duplicates[mediaURL] = true
-
-		enclosures = append(enclosures, &model.Enclosure{
-			URL:      mediaURL,
-			MimeType: mediaThumbnail.MimeType(),
-			Size:     mediaThumbnail.Size(),
-		})
-	}
-
-	for _, enclosure := range rssItem.Enclosures {
-		enclosureURL := enclosure.URL
-
-		if rssItem.FeedBurnerEnclosureLink != "" {
-			filename := path.Base(rssItem.FeedBurnerEnclosureLink)
-			if strings.HasSuffix(enclosureURL, filename) {
-				enclosureURL = rssItem.FeedBurnerEnclosureLink
-			}
-		}
-
-		enclosureURL = strings.TrimSpace(enclosureURL)
-		if enclosureURL == "" {
-			continue
-		}
-
-		if absoluteEnclosureURL, err := urllib.ResolveToAbsoluteURL(siteURL, enclosureURL); err == nil {
-			enclosureURL = absoluteEnclosureURL
-		}
-
-		if _, found := duplicates[enclosureURL]; found {
-			continue
-		}
-
-		duplicates[enclosureURL] = true
-
-		enclosures = append(enclosures, &model.Enclosure{
-			URL:      enclosureURL,
-			MimeType: enclosure.Type,
-			Size:     enclosure.Size(),
-		})
-	}
-
-	for _, mediaContent := range mediaContents {
-		mediaURL := strings.TrimSpace(mediaContent.URL)
-		if mediaURL == "" {
-			continue
-		}
-
-		mediaURL, err := urllib.ResolveToAbsoluteURL(siteURL, mediaURL)
-		if err != nil {
-			slog.Debug("Unable to build absolute URL for media content",
-				slog.String("url", mediaContent.URL),
-				slog.String("site_url", siteURL),
-				slog.Any("error", err),
-			)
-			continue
-		}
-
-		if _, found := duplicates[mediaURL]; found {
-			continue
-		}
-
-		duplicates[mediaURL] = true
-
-		enclosures = append(enclosures, &model.Enclosure{
-			URL:      mediaURL,
-			MimeType: mediaContent.MimeType(),
-			Size:     mediaContent.Size(),
-		})
-	}
-
-	for _, mediaPeerLink := range mediaPeerLinks {
-		mediaURL := strings.TrimSpace(mediaPeerLink.URL)
-		if mediaURL == "" {
-			continue
-		}
-
-		mediaURL, err := urllib.ResolveToAbsoluteURL(siteURL, mediaURL)
-		if err != nil {
-			slog.Debug("Unable to build absolute URL for media peer link",
-				slog.String("url", mediaPeerLink.URL),
-				slog.String("site_url", siteURL),
-				slog.Any("error", err),
-			)
-			continue
-		}
-
-		if _, found := duplicates[mediaURL]; found {
-			continue
-		}
-
-		duplicates[mediaURL] = true
-
-		enclosures = append(enclosures, &model.Enclosure{
-			URL:      mediaURL,
-			MimeType: mediaPeerLink.MimeType(),
-			Size:     mediaPeerLink.Size(),
-		})
-	}
-
-	return enclosures
-}
-
-// appendSorted is identical to [appendSortedSeq] except receives variadic values rather than [iter.Seq].
-func appendSorted[I any, O cmp.Ordered](sorted []O, fn func(I) O, values ...I) []O {
-	sorted = slices.Grow(sorted, len(values))
-	return appendSortedSeq(sorted, fn, slices.Values(values))
-}
-
-// appendSortedSeq appends elements from "values" iterator into "sorted" slice.
-//   - "fn" applied to every element of "values"
-//   - elements inserted into "sorted" slice so it stays sorted
-//   - duplicate elements are not inserted
-func appendSortedSeq[I any, O cmp.Ordered](sorted []O, fn func(I) O, values iter.Seq[I]) []O {
-	var zero O
-
-	for in := range values {
-		out := fn(in)
-		if out == zero {
-			continue
-		}
-
-		where, found := slices.BinarySearch(sorted, out)
-		if found {
-			continue
-		}
-
-		// Insert sorted to avoid duplicates.
-		sorted = slices.Insert(sorted, where, out)
-	}
-
-	return sorted
 }

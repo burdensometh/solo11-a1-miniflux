@@ -1,0 +1,42 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "  Broken JSON Feed  ",
+  "home_page_url": "/blog",
+  "feed_url": "/blog/feed.json",
+  "description": " ",
+  "language": "EN_us",
+  "icon": "/icon.png",
+  "favicon": "/favicon.png",
+  "authors": [{"name": "Feed Author"}],
+  "items": [
+    {
+      "id": "item-1",
+      "title": "  ",
+      "summary": "A short summary",
+      "date_published": "not-a-date",
+      "date_modified": "2018-04-10T05:00:00+00:00",
+      "authors": [{"name": "Jane"}, {"name": "Jane"}, {"name": "John"}],
+      "tags": ["Go", "go", "rust"],
+      "attachments": [
+        {"url": "/files/a.mp3", "mime_type": "audio/mpeg", "size_in_bytes": 100},
+        {"url": "  ", "mime_type": "audio/mpeg"}
+      ]
+    },
+    {
+      "id": "  ",
+      "url": "/article/2",
+      "external_url": "http://elsewhere.example.org/2",
+      "content_text": "Plain <text> & stuff",
+      "language": "fr-CA"
+    },
+    {
+      "id": "item-3",
+      "content_html": "<p>Hello</p>",
+      "author": {"name": "Legacy Author"}
+    },
+    {
+      "title": "No id no url",
+      "content_text": "body only"
+    }
+  ]
+}

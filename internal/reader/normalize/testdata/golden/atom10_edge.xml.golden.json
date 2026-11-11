@@ -1,0 +1,47 @@
+{
+  "format": "atom10",
+  "title": "https://example.org/blog/feed",
+  "description": "",
+  "feed_url": "https://example.org/blog/feed",
+  "site_url": "https://example.org/blog/feed",
+  "language": "",
+  "icon_url": "",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "https://example.org/blog/feed",
+      "title": "Orphan entry",
+      "author": "",
+      "content": "",
+      "hash": "3841e5cf232f5111fc5841e9eba5f4b26d95e7d7124902e0f7272729d65601a6",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    },
+    {
+      "url": "https://example.org/blog/feed",
+      "title": "https://example.org/blog/feed",
+      "author": "",
+      "content": "",
+      "hash": "1ea03308159b11a593e24b6cee14781f3d1571c3c819997bd1754f1b17b3a607",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": [
+        {
+          "url": "https://example.org/double",
+          "mime_type": "audio/mpeg",
+          "size": 10
+        }
+      ]
+    }
+  ]
+}

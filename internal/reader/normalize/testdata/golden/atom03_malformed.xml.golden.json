@@ -1,0 +1,41 @@
+{
+  "format": "atom03",
+  "title": "Atom 0.3 \u0026amp; Broken",
+  "description": "",
+  "feed_url": "https://example.org/blog/feed",
+  "site_url": "https://example.org/oldblog",
+  "language": "fr",
+  "icon_url": "",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "https://example.org/old/1",
+      "title": "\u003cb\u003eHTML\u003c/b\u003e title",
+      "author": "Old Author",
+      "content": "\u003cp\u003econtent\u003c/p\u003e",
+      "hash": "b92c899c0ab0c15453ecc33704cb955565a5fe2289f03a88a8fef757a81ddde4",
+      "comments_url": "",
+      "language": "fr",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2003-12-13T18:30:02Z",
+      "date_is_now": false,
+      "enclosures": []
+    },
+    {
+      "url": "http://example.org/old/2",
+      "title": "Second",
+      "author": "Entry Author",
+      "content": "",
+      "hash": "f9277b16cd887f97d156444141ca04293cdc4cd9f5a95b481d8545efe335b06d",
+      "comments_url": "",
+      "language": "fr",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2003-06-01T00:00:00Z",
+      "date_is_now": false,
+      "enclosures": []
+    }
+  ]
+}

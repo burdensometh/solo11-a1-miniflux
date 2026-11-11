@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"
+     xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title></title>
+    <link>http://example.org/</link>
+    <item>
+      <title><![CDATA[AT&amp;T deal]]></title>
+      <link>  /spaced/article  </link>
+      <description>desc</description>
+      <atom:link href="/alt/atom-style" rel="alternate" type="text/html"/>
+      <media:content url="/media/vid.mp4" fileSize="99" type="video/mp4"/>
+      <media:peerLink href="/peer/link" type="application/octet-stream"/>
+    </item>
+    <item>
+      <link>http://example.org/two</link>
+      <guid></guid>
+    </item>
+  </channel>
+</rss>

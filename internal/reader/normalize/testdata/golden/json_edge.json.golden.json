@@ -1,0 +1,41 @@
+{
+  "format": "json",
+  "title": "https://example.org/blog/feed",
+  "description": "",
+  "feed_url": "https://example.org/blog/feed",
+  "site_url": "https://example.org/blog/feed",
+  "language": "",
+  "icon_url": "",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "https://example.org/blog/relative/page",
+      "title": "https://example.org/blog/relative/page",
+      "author": "",
+      "content": "",
+      "hash": "ec31682fde561917952ff78a7a8adeffd0febc372dd26871916c46c630381b45",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    },
+    {
+      "url": "",
+      "title": "",
+      "author": "Object Instead Of Array",
+      "content": "",
+      "hash": "844ecc08164e2eab27634a9adee1afa6599e589570e719784e080ce747fc0e45",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    }
+  ]
+}

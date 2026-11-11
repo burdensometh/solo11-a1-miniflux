@@ -1,0 +1,16 @@
+{
+  "version": "https://jsonfeed.org/version/1",
+  "items": [
+    {
+      "id": "x1",
+      "url": "relative/page",
+      "title": "",
+      "content_text": "",
+      "summary": ""
+    },
+    {
+      "id": "x2",
+      "authors": {"name": "Object Instead Of Array"}
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed version="0.3" xmlns="http://purl.org/atom/ns#" xml:lang="fr">
+  <title mode="escaped">Atom 0.3 &amp; Broken</title>
+  <link rel="alternate" type="text/html" href="/oldblog"/>
+  <author><name>Old Author</name></author>
+  <entry>
+    <title type="text/html" mode="escaped"><![CDATA[<b>HTML</b> title]]></title>
+    <link rel="alternate" type="text/html" href="/old/1"/>
+    <id>tag:example.org,2003:1</id>
+    <issued>bad-date</issued>
+    <modified>2003-12-13T18:30:02Z</modified>
+    <summary type="text/plain" mode="escaped">plain summary</summary>
+    <content type="text/html" mode="escaped"><![CDATA[<p>content</p>]]></content>
+  </entry>
+  <entry>
+    <title>Second</title>
+    <link rel="alternate" type="text/html" href="http://example.org/old/2"/>
+    <id>tag:example.org,2003:2</id>
+    <created>2003-06-01T00:00:00Z</created>
+    <author><name>Entry Author</name></author>
+  </entry>
+</feed>

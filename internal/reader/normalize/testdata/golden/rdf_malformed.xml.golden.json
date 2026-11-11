@@ -1,0 +1,55 @@
+{
+  "format": "rdf",
+  "title": "Broken RDF",
+  "description": "channel desc",
+  "feed_url": "https://example.org/blog/feed",
+  "site_url": "https://example.org/rdf",
+  "language": "en-us",
+  "icon_url": "",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "https://example.org/item/1",
+      "title": "First Item",
+      "author": "Creator One",
+      "content": "plain desc \u0026 more",
+      "hash": "6dbeb38297765d57b10a5a4e46cd8e7f30f5c65e2b42d418f07b16fa811fbe7f",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    },
+    {
+      "url": "https://example.org/rdf",
+      "title": "Dublin Core Title",
+      "author": "Channel Creator",
+      "content": "\u003cp\u003eencoded\u003c/p\u003e",
+      "hash": "36a9e7f1c95b82ffb99743e0c5c4ce95d83c9a430aac59f84ef3cbfab6145068",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-04-10T05:00:00Z",
+      "date_is_now": false,
+      "enclosures": []
+    },
+    {
+      "url": "https://example.org/item/3",
+      "title": "Third",
+      "author": "Channel Creator",
+      "content": "",
+      "hash": "28c0b4530e15949b945d8bce12c3082691755b92fb496d2d16e912a5860863f1",
+      "comments_url": "",
+      "language": "fr",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    }
+  ]
+}

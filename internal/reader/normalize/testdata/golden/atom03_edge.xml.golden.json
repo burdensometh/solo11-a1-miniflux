@@ -1,0 +1,41 @@
+{
+  "format": "atom03",
+  "title": "https://example.org/blog/feed",
+  "description": "",
+  "feed_url": "https://example.org/blog/feed",
+  "site_url": "https://example.org/blog/feed",
+  "language": "",
+  "icon_url": "",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "",
+      "title": "just text content",
+      "author": "",
+      "content": "just text content",
+      "hash": "",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    },
+    {
+      "url": "",
+      "title": "",
+      "author": "",
+      "content": "",
+      "hash": "d738a49164ab17177417abc0dc893e96bbcc8382cadb62ac771068b0f688077b",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    }
+  ]
+}

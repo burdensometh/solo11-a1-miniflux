@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <!-- no title, no links -->
+  <entry>
+    <title>Orphan entry</title>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
+    <updated>garbage</updated>
+  </entry>
+  <entry>
+    <id>urn:uuid:deadbeef</id>
+    <link href="https://example.org/double" rel="enclosure" type="audio/mpeg" length="10"/>
+    <link href="https://example.org/double" rel="enclosure" type="audio/mpeg" length="10"/>
+  </entry>
+</feed>

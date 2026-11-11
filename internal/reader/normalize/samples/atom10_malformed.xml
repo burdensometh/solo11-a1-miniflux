@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="EN-us">
+  <title>  Broken Atom  </title>
+  <subtitle>  Subtitle here  </subtitle>
+  <link href="/blog" rel="alternate"/>
+  <link href="/blog/feed.atom" rel="self"/>
+  <icon>/icon.png</icon>
+  <logo>/logo.png</logo>
+  <author><name>Feed Author</name></author>
+  <category term="feedcat"/>
+  <entry>
+    <!-- no links at all, relative id -->
+    <title>Entry Without Link</title>
+    <id>relative-id</id>
+    <published>not-a-date</published>
+    <updated>2003-12-13T18:30:02Z</updated>
+    <summary>Summary text</summary>
+  </entry>
+  <entry>
+    <!-- absolute id used as URL fallback -->
+    <title></title>
+    <id>http://example.org/fallback-id</id>
+    <link href="/article/2"/>
+    <content type="html"><![CDATA[<p>HTML</p>]]></content>
+    <author><name>Jane</name></author>
+    <author><name>Jane</name></author>
+    <author><name>John</name></author>
+    <category term="tech" label="Technology"/>
+    <link rel="replies" href="/article/2/replies" type="text/html"/>
+    <link rel="enclosure" href="/files/a.mp3" length="42" type="audio/mpeg"/>
+  </entry>
+  <entry>
+    <title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">XHTML <b>Title</b></div></title>
+    <id>tag:example.org,2023:3</id>
+    <link href="http://example.org/article/3" rel="alternate"/>
+    <published>2018-04-10T05:00:00+00:00</published>
+    <media:thumbnail xmlns:media="http://search.yahoo.com/mrss/" url="/img/t.png"/>
+    <media:content xmlns:media="http://search.yahoo.com/mrss/" url="/media/c.mp4" type="video/mp4" fileSize="77"/>
+  </entry>
+</feed>

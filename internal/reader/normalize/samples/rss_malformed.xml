@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<rss version="2.0"
+     xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:dc="http://purl.org/dc/elements/1.1/"
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:media="http://search.yahoo.com/mrss/"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>  Broken RSS  </title>
+    <link>/blog</link>
+    <description>  A channel with malformed items  </description>
+    <language>EN_us</language>
+    <ttl> not-a-number </ttl>
+    <atom:link href="/blog/feed.xml" rel="self"/>
+    <image><url>/img/logo.png</url></image>
+    <managingEditor>editor@example.org (Editor)</managingEditor>
+    <category>Channel Cat</category>
+    <item>
+      <!-- item with no link, no guid, no title, only description -->
+      <description>First &amp; foremost &lt;b&gt;item&lt;/b&gt;</description>
+      <pubDate>not a date</pubDate>
+    </item>
+    <item>
+      <!-- duplicated guid across two entries -->
+      <title>Second Item</title>
+      <link>/article/2</link>
+      <guid isPermaLink="false">shared-guid</guid>
+      <pubDate>Tue, 03 Jun 2003 09:39:21 GMT</pubDate>
+      <author>jane@example.org (Jane)</author>
+      <comments>http://example.org/article/2/comments</comments>
+      <itunes:duration>1:30:45</itunes:duration>
+      <category>Tech</category>
+      <category>tech</category>
+      <enclosure url="/files/audio.mp3" length="1234" type="audio/mpeg"/>
+      <media:thumbnail url="/img/thumb.jpg"/>
+    </item>
+    <item>
+      <title>Third Item</title>
+      <link>/article/3</link>
+      <guid isPermaLink="false">shared-guid</guid>
+      <dc:date>20-04-10T05:00:00+00:00</dc:date>
+      <dc:creator>DC Creator</dc:creator>
+      <content:encoded><![CDATA[<p>Encoded content</p>]]></content:encoded>
+      <enclosure url="http://cdn.example.org/audio.mp3" length="" type="audio/mpeg"/>
+      <enclosure url="/files/audio.mp3" length="1234" type="audio/mpeg"/>
+    </item>
+    <item>
+      <!-- guid that is a permalink, no link element -->
+      <guid>http://example.org/permalink/4</guid>
+      <title></title>
+      <description></description>
+    </item>
+  </channel>
+</rss>

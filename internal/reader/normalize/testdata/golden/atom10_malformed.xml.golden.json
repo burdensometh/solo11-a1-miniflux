@@ -1,0 +1,78 @@
+{
+  "format": "atom10",
+  "title": "Broken Atom",
+  "description": "Subtitle here",
+  "feed_url": "https://example.org/blog/feed.atom",
+  "site_url": "https://example.org/blog",
+  "language": "en-us",
+  "icon_url": "https://example.org/icon.png",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "https://example.org/blog",
+      "title": "Entry Without Link",
+      "author": "Feed Author",
+      "content": "Summary text",
+      "hash": "dfc1cd2cc1d32a718d965656e4c29bf987a91e0ef95444ceda520b4e1227be05",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [
+        "feedcat"
+      ],
+      "date": "2003-12-13T18:30:02Z",
+      "date_is_now": false,
+      "enclosures": []
+    },
+    {
+      "url": "https://example.org/article/2",
+      "title": "HTML",
+      "author": "Jane, John",
+      "content": "\u003cp\u003eHTML\u003c/p\u003e",
+      "hash": "4e478f830f1ed0d948f7904461e026359b98d4806d8e4f179bb43dbc848df58f",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [
+        "Technology"
+      ],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": [
+        {
+          "url": "https://example.org/files/a.mp3",
+          "mime_type": "audio/mpeg",
+          "size": 42
+        }
+      ]
+    },
+    {
+      "url": "http://example.org/article/3",
+      "title": "XHTML \u003cb\u003eTitle\u003c/b\u003e",
+      "author": "Feed Author",
+      "content": "",
+      "hash": "20bc65b7ed035092bc9bcaa3f094c78bf87ab9cd0d2174374636ec985ca7aeb6",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [
+        "feedcat"
+      ],
+      "date": "2018-04-10T05:00:00Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "https://example.org/img/t.png",
+          "mime_type": "image/*",
+          "size": 0
+        },
+        {
+          "url": "https://example.org/media/c.mp4",
+          "mime_type": "video/mp4",
+          "size": 77
+        }
+      ]
+    }
+  ]
+}

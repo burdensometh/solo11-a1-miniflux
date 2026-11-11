@@ -1,0 +1,533 @@
+{
+  "format": "parser_testdata",
+  "title": "BBC News  اردو - پاکستان کے لیے امریکی امداد کی بہار و خزاں",
+  "description": "BBC News  اردو - پاکستان کے لیے امریکی امداد کی بہار و خزاں",
+  "feed_url": "https://example.org/feed",
+  "site_url": "http://www.bbcurdu.com",
+  "language": "ur",
+  "icon_url": "http://www.bbc.co.uk/urdu/images/gel/rss_logo.gif",
+  "ttl_minutes": 15,
+  "has_ttl": true,
+  "entries": [
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42575603",
+      "title": "امریکی عسکری امداد کی بندش کی وجوہات: انڈیا سے جنگ، جوہری پروگرام اور اب دہشت گردوں کی پشت پناہی",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکہ اور پاکستان کے 70 سالہ تعلقات میں جب بھی زیادہ کشیدگی آتی ہے تو اس میں پہلی تلوار پاکستان کو ملنے والی عسکری امداد پر چلتی ہے۔",
+      "hash": "c4a3618f3545d8d102c78dc69931bd503684953d147815a47e1ba001c8acf218",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-05T16:51:00Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/A787/production/_99478824_gettyimages-856735580.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42645212",
+      "title": "امریکہ کے ساتھ خفیہ معلومات کا تبادلہ اور فوجی تعاون معطل کر دیا: وزیر دفاع",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان کے وزیر دفاع خرم دستگیر نے کہا ہے کہ امریکہ کی جانب سے عسکری امداد کی معطلی کے بعد پاکستان نے امریکہ سے خفیہ معلومات کا تبادلہ اور فوجی تعاون بند کر دیا ہے۔",
+      "hash": "98369c9cd357d522200887097ac127abdc02c6bb364630af14d235d7159d70a2",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-11T13:20:55Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/13C09/production/_99550908_3f6467e7-5086-43e5-9c31-918be66a17ad.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/world-42615276",
+      "title": "پاکستان ان دہشت گرد گروہوں کے خلاف کارروائی کرے جن کے خلاف ہم چاہتے ہیں: امریکہ",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکی محکمۂ دفاع کا کہنا ہے کہ امریکہ چاہتا ہے کہ پاکستان دہشت گردوں کے خلاف فیصلہ کن کارروائی کرے اور یہ کہ امریکہ کو بعض معاملات پر شدید اختلافات ہیں اور ان پر کام کیا جا رہا ہے۔",
+      "hash": "d8759d22e617535b0645fef04cf624430d4b6a275b23e6fbae9f4ab85d822f91",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-09T02:59:43Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/5B55/production/_99518332_mediaitem99518331.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42554318",
+      "title": "پاکستانی وزیر دفاع کہتے ہیں کہ امریکہ کو ایک کامیابی ملی ہے، وہ بھی پاکستان کی مرہون منت",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان کے وزیر دفاع خرم دستگیر نے کہا ہے کہ افغانستان کی صورتحال کی تمام ذمہ داری پاکستان پر نہیں ڈالی جا سکتی۔",
+      "hash": "7dd190eeb761ab15793e6170883ef3431a117f12dfac371257bf9e32ef29771f",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-03T15:50:55Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/16765/production/_99450029_p05snlw4.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/42547605",
+      "title": "صدر ٹرمپ کے ٹویٹ کو سنجیدگی سے لیتے ہیں: وزیر دفاع",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان کے وزیر دفاع خرم دستگیر نے کہا کہ پاکستان امریکی صدر ٹرمپ کے پاکستان کے بارے میں ٹویٹ کو سنجیدگی سے لیتے ہیں اور تہذیب کے دائرے میں رہتے ہوئے امریکہ سے بے لاگ بات ہو گی۔",
+      "hash": "784bd5e48496bf009a4ab06d8b656f0e57bf2ac38a06ae8eed50322bf1ad9955",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-02T17:27:36Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/5AA4/production/_99440232_p05sk783.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-41739055",
+      "title": "امریکی وزیرِ خارجہ کی پاکستان آمد",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکی وزیرِ خارجہ ریکس ٹلرسن نے پاکستان آمد کے بعد وزیراعظم ہاؤس میں پاکستان کی اعلیٰ سول اور فوجی قیادت سے ملاقات کی۔",
+      "hash": "d570d4ed5e0d38f5e958a58a720208c1a852e4b924cdf98ed038ec2db676385b",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-10-24T13:08:06Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/10293/production/_98459166_p05ktkrj.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42542988",
+      "title": "امریکہ اور پاکستان ایک دوسرے کا کیا بگاڑ سکتے ہیں؟",
+      "author": "urdu@bbc.co.uk",
+      "content": "تجزیہ کار کہتے ہیں کہ حقیقتاً افغانستان میں پاکستان اور امریکہ دونوں ہی ناکام ہوئے ہیں اور دونوں یہ سمجھتے ہیں کہ دوسرے کو شکست دے کر وہ پورے افغانستان پر اثر و رسوخ قائم کر سکیں گے۔",
+      "hash": "2be4784d15cc9589c826194508b210cda801aa25a2b12e0d29a1e24f0fe991ed",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-02T16:28:18Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/1AED/production/_99439860_gettyimages-839854052.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42532582",
+      "title": "امریکہ اور پاکستان کے کشیدہ تعلقات میں اربوں ڈالر کی امداد پر بھی تنازع",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان اور امریکہ کے کشیدہ تعلقات میں اربوں ڈالر کی امداد پر بھی تنازع ہے جس میں دونوں ممالک الگ الگ اعداد و شمار بتاتے ہیں۔",
+      "hash": "71af7c6f2a4dff89afe236c0d69ed62c487d1526bd46f0f26bd63746c806fcf8",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-02T10:28:02Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/9281/production/_99050573__98456547_d3ee46a1-51a1-48b1-a24f-9a41cf21361e.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42548010",
+      "title": "’امریکہ انسداد دہشتگردی سیکھنے کے بجائے دشنام طرازی کر رہا ہے‘",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان کے وزیر دفاع خرم دستگیر خان نے کہا ہے کہ پاکستان میں دہشت گردوں کی خفیہ پناہ گاہیں نہیں ہیں اور اگر باقیات ہیں تو انہیں رد الفساد کے تحت ختم کیا جا رہا ہے تاکہ پاکستان کا مستقبل محفوظ ہو سکے۔",
+      "hash": "0fcfb283082fb7fe0d7183f3e546da3cf8e340e5bb61368f429a3ce4ed60b43c",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-03T05:04:13Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/9B36/production/_99443793_image1.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/world-42571559",
+      "title": "پاکستان بھی ’مذہبی آزادیوں کی خلاف ورزیاں‘ کرنے والے ممالک میں شامل",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکہ کی وزارتِ خارجہ نے پاکستان کا نام ان ملکوں کی فہرست میں شامل کر دیا ہے جہاں مبینہ طور پر مذہبی آزادیوں کی یا تو سنگین خلاف ورزیوں کا ارتکاب کیا جاتا ہے یا مذہبی آزادیوں پر پابندیاں عائد ہیں۔",
+      "hash": "86ddb3122f81a56893b7d06fe1541328444193f163e08ad5894fdef34d88b8e9",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-04T17:12:58Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/184A8/production/_99469499_gettyimages-894786806.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42577314",
+      "title": "پاکستان کی سکیورٹی امداد معطل: ’دہشت گردی کے خلاف عزم پر اثرانداز نہیں ہو سکتی‘",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکہ کی طرف سے پاکستان کی فوجی امداد کے بند کیے جانے پر پاکستان کے دفتر خارجہ نے کہا ہے کہ یک طرفہ بیانات، مرضی سے دی گئی ڈیڈ لائنز اور اہداف کی مستقل تبدیلی مشترکہ مفادات کے حصول میں سودمند ثابت نہیں ہو سکتی۔",
+      "hash": "011e1b4c95a511c00f7008fa55d2a14ac8b2fbe941743d5163cf958775349469",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-05T12:32:27Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/0935/production/_99475320_556f3020-6286-47a8-a4b1-3026ff6dc95f.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/world-42534486",
+      "title": "ڈونلڈ ٹرمپ: پاکستان نے ہمیں جھوٹ اور دھوکے کے سوا کچھ نہیں دیا",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکی صدر ڈونلڈ ٹرمپ کا کہنا ہے کہ گذشتہ15 برس میں 33 ارب ڈالر کی امداد لینے کے باوجود پاکستان نے امریکہ کو سوائے جھوٹ اور دھوکے کے کچھ نہیں دیا۔",
+      "hash": "9c948c66788528830b4be9c47c2ab4aaa3ee86c44d834603ff292d2774173f9c",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-01T17:59:24Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/A5CE/production/_99264424_gettyimages-894923566.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/world-42451883",
+      "title": "پاکستان: اتحادی ایک دوسرے کو تنبیہ جاری نہیں کیا کرتے",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکی نائب صدر مائیک پینس کے پاکستان کے بارے میں بگرام کے ہوائی اڈے پر دیے جانے والے بیان پر تبصرہ کرتے ہوئے پاکستان کی وزارتِ خارجہ کے ترجمان نے کہا کہ یہ بیان امریکی انتظامیہ کے ساتھ ہونے والے تفصیلی مذاکرات کے منافی ہے۔",
+      "hash": "9b8f7be48e6f736a8ab71c5147311e197f72ec7d560650914d2be65105c5e62b",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-12-22T08:50:54Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/12825/production/_99331857_gettyimages-896767012.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/world-42457273",
+      "title": "امریکہ: کون سے ممالک ہیں جن پر امداد بند کر دینے کی دھمکی کارگر ثابت نہیں ہوئی",
+      "author": "urdu@bbc.co.uk",
+      "content": "سب سے زیادہ امریکی امداد وصول کرنے والے 12 ملکوں کی فہرست میں اسرائیل کے علاوہ ایک بھی ملک ایسا نہیں جس نے جنرل اسمبلی میں یروشلم کے بارے میں امریکی صدر کے فیصلے کے خلاف قرارداد کی مخالفت میں ووٹ دیا ہو۔",
+      "hash": "8fdf720b98864a8ceb5d9fc386237a5377b9eedc12fa4a14e2df0caa1b41d125",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-12-22T15:29:44Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/1331F/production/_99332687_gettyimages-882119996.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42225606",
+      "title": "پاکستان امریکہ تعلقات، بیان بدلتے ہیں لیکن عینک نہیں",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان اور امریکہ کے نرم گرم تعلقات کی تاریخ صرف افغانستان تک محدود نہیں، لیکن حالیہ برسوں میں دونوں اکثر ایک دوسرے کو ایک ہی عینک سے دیکھنے کی کوشش کرتے ہیں۔",
+      "hash": "8858a2ec38d40201f2af0af4c56ca47ce17b86a4ae63598e473721e1395afad0",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-12-04T13:36:14Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/9281/production/_99050573__98456547_d3ee46a1-51a1-48b1-a24f-9a41cf21361e.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-41742387",
+      "title": "پاکستان امریکہ تعلقات: ’باتیں دھمکی کی زبان سے نہیں صلح کی زبان سے طے ہوں گی‘",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان کے وزیر خارجہ خواجہ آصف نے کہا ہے کہ امریکہ اور پاکستان کے درمیان اعتماد کا فقدان راتوں رات ختم نہیں ہو گا کیونکہ دونوں ممالک کے تعلقات پر جمی برف پگھلنے میں وقت لگے گا۔",
+      "hash": "b1de8ae5c6380b4515f1fa391e2a2a7b24e7fe95418946baf3e8912bef385499",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-10-25T01:19:34Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/15BE/production/_98466550_844059008.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-41097529",
+      "title": "امریکہ کے ساتھ تعاون ختم کرنے پر غور کیا جائے: قرارداد",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان کی پارلیمان نے ایک متفقہ قرارداد میں امریکی صدر کی حالیہ تقریراور افغانستان میں امریکی کمانڈر جنرل جان نکلسن کے بیان کو مسترد کر دیا ہے۔",
+      "hash": "0f4186c756f06909f585189910aef869bbc65bee68101237f25f66061411b16b",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-08-30T16:19:55Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/8C50/production/_97602953_3ad0abf1-2480-41b0-bc0a-9d89393c71e4.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-41038882",
+      "title": "’پاکستان کو قربانی کا بکرا بناکر افغانستان میں امن نہیں لایا جاسکتا‘",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان کی اعلیٰ سیاسی اور عسکری قیادت نے امریکی صدر ڈونلڈ ٹرمپ کی جانب سے اپنے حالیہ خطاب میں پاکستان پر لگائے گئے الزامات کو مسترد کرتے ہوئے کہا ہے کہ پاکستان پر الزام تراشیوں سے افغانستان کو مستحکم نہیں کیا جا سکتا۔",
+      "hash": "b55acdb74611346a67139e49c170985a89d934613abdb590a69c3c5e0b0ccc39",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-08-24T14:35:50Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/38EA/production/_97507541_gettyimages-831217164.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-41024731",
+      "title": "امریکہ سے امداد کے نہیں اعتماد کے خواہاں ہیں: جنرل باجوہ",
+      "author": "urdu@bbc.co.uk",
+      "content": "پاکستان کے آرمی چیف قمر جاوید باجوہ نے کہا ہے کہ پاکستان امریکہ سے کسی مادی یا مالی امداد کا خواہاں نہیں بلکہ چاہتا ہے کہ اس پر اعتماد کرتے ہوئے اس کی کارکردگی کا اعتراف کیا جائے۔",
+      "hash": "d80fbf1a9f0efe72bb7cb4a4759d4990e7c1e00fb3af9fed41ea7443577f0c02",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-08-23T13:11:20Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/E6B3/production/_97495095_dh6cwc3xuaawzfm.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-41019799",
+      "title": "’پاکستان نے اپنے رویے کو تبدیل نہ کیا تو امریکی مراعات کھو سکتا ہے‘",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکی وزیر خارجہ ریکس ٹیلرسن نے افغان طالبان کی مبینہ حمایت پر کہا ہے کہ اگر پاکستان اپنے رویے میں تبدیلی لانے میں ناکام رہتا ہے تو امریکی مراعات کھو سکتا ہے جبکہ پاکستان نے کہا ہے کہ امریکہ محفوظ پناہ گاہوں کے جھوٹے بیانیے کے بجائے دہشت گردی کے خلاف مل کر کام کرے۔",
+      "hash": "326035d30914f659b44dba664e21f320a98f9d6e86cb3d767ffd91cb8e8fd596",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-08-22T23:06:07Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/1710E/production/_97487449_gettyimages-825293218.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42550677",
+      "title": "امریکہ کا پاکستان کو ’نوٹس‘ کیا اور کتنا سنگین ہے؟",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکی صدر ڈونلڈ ٹرمپ نے ٹویٹ کے ذریعے اپنے ارادے تو ظاہر کر دیے ہیں لیکن دیکھنا یہ ہے کیا امریکہ کی دھمکی محض افغان طالبان تک محدود ہے یا پھر انڈیا مخالف گروپس بھی اس میں شامل ہوں گے۔",
+      "hash": "e26ad14633c9605aba81563a071dd5432ff938001acb1547d043d58881c86057",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-03T07:47:12Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/14B12/production/_99445748_18215753-eb0c-4c5d-b4b7-06aa87bfcd39.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42594820",
+      "title": "کمال ہے، اتنی دہشت؟",
+      "author": "urdu@bbc.co.uk",
+      "content": "مجھے تو تینتیس ارب ڈالر کے پاکستانی روپے ہی بنانے نہیں آ ت ، بھیا ٹرمپ! ہم سے حساب کیا مانگتے ہو؟ جن کو دیا تھا صاف صاف ان کا نام لو یا تم بھی غائب ہونے سے ڈرتے ہو؟",
+      "hash": "cd083b5d9e137a389c7aa14c5b28d4b12c1f02102295ec88f662ac2d5435cefa",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-07T03:49:01Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/5F27/production/_99495342_cf7d6805-64db-4438-8fe7-85fd61e470cf.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42575493",
+      "title": "کیا امداد بند کرنے سے امریکہ کا مقصد پورا ہو گا؟",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکہ کی جانب سے پاکستان کی عسکری امداد بند کیے جانے پر ماہرین کا کہنا ہے کہ اس اقدام سے کمزور اقتصادی صورتحال میں پاکستان پر دباؤ پڑے گا اور دہشت گردی کے خلاف جنگ بھی متاثر ہو گئی۔",
+      "hash": "f600b6cd432da267c2e22d264dbba76b87fd6f64a35d00a54ada4054751551a6",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-05T08:27:04Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/D4AF/production/_99474445_gettyimages-482348300.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/42596931",
+      "title": "وہ تازیانے لگے ہوش سب ٹھکانے لگے",
+      "author": "urdu@bbc.co.uk",
+      "content": "وہ قوم جو 30 برس پہلے تک ناک پے مکھی نہیں بیٹھنے دیتی تھی اس کا یہ حال ہوگیا کہ چابک چھوڑ چابک کے سائے سے بھی ڈر جاتی ہے۔",
+      "hash": "8482eeda39a054d0c23cc831bdc779038aeddb8dbf17f779fdfa0ffa1ca46c0b",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2018-01-07T12:37:26Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/863B/production/_99036343_batsebat.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-41736761",
+      "title": "امریکہ پاکستان سے چاہتا کیا ہے؟",
+      "author": "urdu@bbc.co.uk",
+      "content": "امریکی وزیر خارجہ ریکس ٹلرسن پاکستان کے مختصر دورے پر اسلام آباد پہنچ گئے جہاں وہ چند ’مخصوص‘ مطالبات بھی پیش کریں گے۔ آخر امریکہ پاکستان سے چاہتا کیا ہے اور یہ مطالبات کیا ہو سکتے ہیں؟",
+      "hash": "6645cea57b326d724d368e00ac6fa3abf786dd12fbe19eb98d8f19a93fb372fd",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-10-24T12:53:37Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/12345/production/_98456547_d3ee46a1-51a1-48b1-a24f-9a41cf21361e.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "url": "http://www.bbc.com/urdu/pakistan-42422392",
+      "title": "پاکستان امریکہ تعلقات میں ’ڈو مور‘ کا نیا ایڈیشن جو آج تک چل رہا",
+      "author": "urdu@bbc.co.uk",
+      "content": "افغانستان میں بین الاقوامی سیاست اور ترجیحات سمجھنے کے لیے یہ جاننا ضروری ہے کہ 2001 میں امریکی آمد کے بعد سے بعض ایسی چیزیں ہیں جو تبدیل نہیں ہو رہیں۔",
+      "hash": "4e462852cc385cfa09f7b0418d0832f70e5379f937a30123bd822821114b0993",
+      "comments_url": "",
+      "language": "ur",
+      "reading_time": 0,
+      "tags": [],
+      "date": "2017-12-20T12:23:23Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "http://c.files.bbci.co.uk/7CB9/production/_99292913_gettyimages-884411870.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        }
+      ]
+    }
+  ]
+}

@@ -4,16 +4,8 @@
 package atom // import "miniflux.app/v2/internal/reader/atom"
 
 import (
-	"log/slog"
-	"strings"
-	"time"
-
-	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/model"
-	"miniflux.app/v2/internal/reader/date"
-	"miniflux.app/v2/internal/reader/language"
-	"miniflux.app/v2/internal/reader/sanitizer"
-	"miniflux.app/v2/internal/urllib"
+	"miniflux.app/v2/internal/reader/normalize"
 )
 
 type atom03Adapter struct {
@@ -21,110 +13,43 @@ type atom03Adapter struct {
 }
 
 func (a *atom03Adapter) buildFeed(baseURL string) *model.Feed {
-	feed := &model.Feed{
-		FeedURL: baseURL,
-		SiteURL: baseURL,
-	}
-
-	// Populate the feed URL.
-	feedURL := a.atomFeed.Links.firstLinkWithRelation("self")
-	if feedURL != "" {
-		if absoluteFeedURL, err := urllib.ResolveToAbsoluteURL(baseURL, feedURL); err == nil {
-			feed.FeedURL = absoluteFeedURL
-		}
-	}
-
-	// Populate the site URL.
-	siteURL := a.atomFeed.Links.originalLink()
-	if siteURL != "" {
-		if absoluteSiteURL, err := urllib.ResolveToAbsoluteURL(baseURL, siteURL); err == nil {
-			feed.SiteURL = absoluteSiteURL
-		}
-	}
-
-	// Populate the feed title.
+	feed := normalize.NewFeed(baseURL)
+	feed.FeedURL = a.atomFeed.Links.firstLinkWithRelation("self")
+	feed.FeedURLFallbackToBase = true
+	feed.SiteURL = a.atomFeed.Links.originalLink()
+	feed.SiteURLFallbackToBase = true
 	feed.Title = a.atomFeed.Title.content()
-	if feed.Title == "" {
-		feed.Title = feed.SiteURL
-	}
-
-	feed.Language = language.Normalize(a.atomFeed.Language)
+	feed.Language = a.atomFeed.Language
 
 	for _, atomEntry := range a.atomFeed.Entries {
-		entry := model.NewEntry()
+		entry := feed.NewEntry()
 
-		// Populate the entry language. xml:lang applies to the whole
-		// subtree it is declared on, so an entry without its own
-		// xml:lang inherits the feed-level value.
-		entry.Language = language.Normalize(atomEntry.Language)
-		if entry.Language == "" {
-			entry.Language = language.Normalize(a.atomFeed.Language)
-		}
+		entry.Language = atomEntry.Language
 
-		// Populate the entry URL.
+		// An Atom 0.3 entry without links keeps an empty URL: there is no
+		// site-URL fallback on this format.
 		entry.URL = atomEntry.Links.originalLink()
-		if entry.URL != "" {
-			if absoluteEntryURL, err := urllib.ResolveToAbsoluteURL(feed.SiteURL, entry.URL); err == nil {
-				entry.URL = absoluteEntryURL
-			}
-		}
 
-		// Populate the entry content.
 		entry.Content = atomEntry.Content.content()
 		if entry.Content == "" {
 			entry.Content = atomEntry.Summary.content()
 		}
 
-		// Populate the entry title.
 		entry.Title = atomEntry.Title.content()
-		if entry.Title == "" {
-			entry.Title = sanitizer.TruncateHTML(entry.Content, 100)
+		entry.TitleContentFallback = true
+
+		if author := atomEntry.Author.PersonName(); author != "" {
+			entry.Authors = []string{author}
+		} else if feedAuthor := a.atomFeed.Author.PersonName(); feedAuthor != "" {
+			entry.Authors = []string{feedAuthor}
 		}
 
-		if entry.Title == "" {
-			entry.Title = entry.URL
-		}
+		entry.DateCandidates = []string{atomEntry.Issued, atomEntry.Modified, atomEntry.Created}
+		entry.DateFallbackNow = true
 
-		// Populate the entry author.
-		entry.Author = atomEntry.Author.PersonName()
-		if entry.Author == "" {
-			entry.Author = a.atomFeed.Author.PersonName()
-		}
-
-		// Populate the entry date.
-		for _, value := range []string{atomEntry.Issued, atomEntry.Modified, atomEntry.Created} {
-			if value = strings.TrimSpace(value); value == "" {
-				continue
-			}
-
-			parsedDate, err := date.Parse(value)
-			if err != nil {
-				slog.Debug("Unable to parse date from Atom 0.3 feed",
-					slog.String("date", value),
-					slog.String("id", atomEntry.ID),
-					slog.Any("error", err),
-				)
-				continue
-			}
-
-			entry.Date = parsedDate
-			break
-		}
-
-		if entry.Date.IsZero() {
-			entry.Date = time.Now()
-		}
-
-		// Generate the entry hash.
-		for _, value := range []string{atomEntry.ID, atomEntry.Links.originalLink()} {
-			if value != "" {
-				entry.Hash = crypto.SHA256(value)
-				break
-			}
-		}
-
-		feed.Entries = append(feed.Entries, entry)
+		// Values are hashed verbatim, including empty ones being skipped.
+		entry.HashCandidates = []string{atomEntry.ID, atomEntry.Links.originalLink()}
 	}
 
-	return feed
+	return feed.Build()
 }

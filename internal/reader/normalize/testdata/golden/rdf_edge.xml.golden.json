@@ -1,0 +1,41 @@
+{
+  "format": "rdf",
+  "title": "https://example.org/blog/feed",
+  "description": "orphan channel",
+  "feed_url": "https://example.org/blog/feed",
+  "site_url": "https://example.org/blog/feed",
+  "language": "",
+  "icon_url": "",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "https://example.org/blog/relative.html",
+      "title": "AT\u0026T",
+      "author": "",
+      "content": "Test",
+      "hash": "630454792d191c01a617904571da18961b157fd5b9b5c40a3d1bfe42c308fe5a",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    },
+    {
+      "url": "https://example.org/blog/feed",
+      "title": "https://example.org/blog/feed",
+      "author": "",
+      "content": "No title no link",
+      "hash": "ea24a66baf9893562490fabf204e6401644bf9a62a7166d9f81c673a87547ec4",
+      "comments_url": "",
+      "language": "",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    }
+  ]
+}

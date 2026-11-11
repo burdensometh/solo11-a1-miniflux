@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rdf:RDF
+  xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+  xmlns:dc="http://purl.org/dc/elements/1.1/"
+  xmlns:content="http://purl.org/rss/1.0/modules/content/"
+  xmlns="http://purl.org/rss/1.0/">
+
+  <channel rdf:about="http://example.org/">
+    <title>  Broken RDF  </title>
+    <link>/rdf</link>
+    <description>  channel desc  </description>
+    <dc:language>EN_us</dc:language>
+    <dc:creator>Channel Creator</dc:creator>
+  </channel>
+
+  <item rdf:about="http://example.org/1">
+    <title>First Item</title>
+    <link>/item/1</link>
+    <description>plain desc &amp; more</description>
+    <dc:date>not-a-date</dc:date>
+    <dc:creator><![CDATA[<b>Creator</b> One]]></dc:creator>
+  </item>
+
+  <item>
+    <!-- no link at all, dc:title overrides empty title -->
+    <title> </title>
+    <dc:title>Dublin Core Title</dc:title>
+    <description></description>
+    <content:encoded><![CDATA[<p>encoded</p>]]></content:encoded>
+    <dc:date>2018-04-10T05:00:00+00:00</dc:date>
+  </item>
+
+  <item rdf:about="http://example.org/3">
+    <title>Third</title>
+    <link>  /item/3  </link>
+    <dc:language>fr</dc:language>
+  </item>
+</rdf:RDF>

@@ -1,0 +1,100 @@
+{
+  "format": "rss",
+  "title": "Broken RSS",
+  "description": "A channel with malformed items",
+  "feed_url": "https://example.org/blog/feed.xml",
+  "site_url": "https://example.org/blog",
+  "language": "en-us",
+  "icon_url": "https://example.org/img/logo.png",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "https://example.org/blog",
+      "title": "First \u0026 foremost item",
+      "author": "editor@example.org (Editor)",
+      "content": "First \u0026 foremost \u003cb\u003eitem\u003c/b\u003e",
+      "hash": "d02e52eec1d84fc9be42d24cc33afd8f9ef759ded868eaa12af327fa4fa27f94",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [
+        "Channel Cat"
+      ],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    },
+    {
+      "url": "https://example.org/article/2",
+      "title": "Second Item",
+      "author": "jane@example.org (Jane)",
+      "content": "",
+      "hash": "85ea42423ee1194c4c95cc7d8bd447c735d695a5757eaea9bdd569f6cdb2f765",
+      "comments_url": "http://example.org/article/2/comments",
+      "language": "en-us",
+      "reading_time": 90,
+      "tags": [
+        "Tech",
+        "tech"
+      ],
+      "date": "2003-06-03T09:39:21Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "https://example.org/img/thumb.jpg",
+          "mime_type": "image/*",
+          "size": 0
+        },
+        {
+          "url": "https://example.org/files/audio.mp3",
+          "mime_type": "audio/mpeg",
+          "size": 1234
+        }
+      ]
+    },
+    {
+      "url": "https://example.org/article/3",
+      "title": "Third Item",
+      "author": "DC Creator",
+      "content": "\u003cp\u003eEncoded content\u003c/p\u003e",
+      "hash": "b70b610662fa1798c19ffd81f5b2a4b83d97bdc55b83c5bcf772d788e9c77b60",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [
+        "Channel Cat"
+      ],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": [
+        {
+          "url": "http://cdn.example.org/audio.mp3",
+          "mime_type": "audio/mpeg",
+          "size": 0
+        },
+        {
+          "url": "https://example.org/files/audio.mp3",
+          "mime_type": "audio/mpeg",
+          "size": 1234
+        }
+      ]
+    },
+    {
+      "url": "http://example.org/permalink/4",
+      "title": "http://example.org/permalink/4",
+      "author": "editor@example.org (Editor)",
+      "content": "",
+      "hash": "b456351678e8ea353a384c0851c69396772fc1c0ff8a1c8dbe34cd78712040c5",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [
+        "Channel Cat"
+      ],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    }
+  ]
+}

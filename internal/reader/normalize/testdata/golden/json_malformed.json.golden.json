@@ -1,0 +1,79 @@
+{
+  "format": "json",
+  "title": "Broken JSON Feed",
+  "description": "",
+  "feed_url": "https://example.org/blog/feed.json",
+  "site_url": "https://example.org/blog",
+  "language": "en-us",
+  "icon_url": "https://example.org/favicon.png",
+  "ttl_minutes": 0,
+  "has_ttl": false,
+  "entries": [
+    {
+      "url": "",
+      "title": "A short summary",
+      "author": "Feed Author, Jane, John",
+      "content": "A short summary",
+      "hash": "59908df50572502ceeabbcc669a28bcc5343d7564a581b9c9648479580f5b773",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [
+        "Go",
+        "go",
+        "rust"
+      ],
+      "date": "2018-04-10T05:00:00Z",
+      "date_is_now": false,
+      "enclosures": [
+        {
+          "url": "https://example.org/files/a.mp3",
+          "mime_type": "audio/mpeg",
+          "size": 100
+        }
+      ]
+    },
+    {
+      "url": "https://example.org/article/2",
+      "title": "Plain \u0026 stuff",
+      "author": "Feed Author",
+      "content": "Plain \u0026lt;text\u0026gt; \u0026amp; stuff",
+      "hash": "5931497825592891afb4c4c0283e6ef642919a74c03f79c643ce5185b6696793",
+      "comments_url": "",
+      "language": "fr-ca",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    },
+    {
+      "url": "",
+      "title": "Hello",
+      "author": "Feed Author, Legacy Author",
+      "content": "\u003cp\u003eHello\u003c/p\u003e",
+      "hash": "7c377ad0322c2a80bcb539c96c3ab4dd7bf5c1dbe17132b3d177e22ff258460d",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    },
+    {
+      "url": "",
+      "title": "No id no url",
+      "author": "Feed Author",
+      "content": "body only",
+      "hash": "60fe1145aed53df53a9b7b5d56aeb4e87b19234796b181647327da62bc58c283",
+      "comments_url": "",
+      "language": "en-us",
+      "reading_time": 0,
+      "tags": [],
+      "date": "\u003cnow\u003e",
+      "date_is_now": true,
+      "enclosures": []
+    }
+  ]
+}
