@@ -34,8 +34,11 @@ func TestNewHandlerHandlesOptionsRequests(t *testing.T) {
 		t.Fatalf(`Unexpected Access-Control-Allow-Methods header, got %q`, got)
 	}
 
-	if got := w.Header().Get("Access-Control-Allow-Headers"); got != "X-Auth-Token, Authorization, Content-Type, Accept" {
+	if got := w.Header().Get("Access-Control-Allow-Headers"); got != "X-Auth-Token, X-API-Version, Authorization, Content-Type, Accept" {
 		t.Fatalf(`Unexpected Access-Control-Allow-Headers header, got %q`, got)
+	}
+	if got := w.Header().Get("Access-Control-Expose-Headers"); got != "X-API-Version, X-API-Version-Supported" {
+		t.Fatalf(`Unexpected Access-Control-Expose-Headers header, got %q`, got)
 	}
 
 	if got := w.Header().Get("Access-Control-Max-Age"); got != "3600" {

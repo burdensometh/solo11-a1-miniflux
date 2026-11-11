@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -29,6 +30,9 @@ var (
 	ErrNotFound      = errors.New("miniflux: resource not found")
 	ErrBadRequest    = errors.New("miniflux: bad request")
 	ErrEmptyEndpoint = errors.New("miniflux: empty endpoint provided")
+	// ErrV2Required is returned by v2-only client methods when the client was
+	// not constructed with WithAPIVersion(APIVersion2).
+	ErrV2Required = errors.New("miniflux: v2 API methods require WithAPIVersion(APIVersion2) when constructing the client")
 )
 
 type errorResponse struct {
@@ -36,11 +40,12 @@ type errorResponse struct {
 }
 
 type request struct {
-	endpoint string
-	username string
-	password string
-	apiKey   string
-	client   *http.Client
+	endpoint   string
+	username   string
+	password   string
+	apiKey     string
+	apiVersion int
+	client     *http.Client
 }
 
 func (r *request) Get(ctx context.Context, path string) (io.ReadCloser, error) {
@@ -158,6 +163,9 @@ func (r *request) buildHeaders() http.Header {
 	headers.Add("Accept", "application/json")
 	if r.apiKey != "" {
 		headers.Add("X-Auth-Token", r.apiKey)
+	}
+	if r.apiVersion > 0 {
+		headers.Add("X-API-Version", strconv.Itoa(r.apiVersion))
 	}
 	return headers
 }

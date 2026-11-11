@@ -338,6 +338,57 @@ type EntryResultSet struct {
 	Entries Entries `json:"entries"`
 }
 
+// EntryV2 is the API v2 representation of an entry. It embeds the historical
+// fields and adds the v2-only attributes; a v1 server simply leaves the new
+// fields at their zero values, so the struct is safe to decode in both
+// directions.
+type EntryV2 struct {
+	Entry
+
+	EntryID     int64  `json:"entry_id"`
+	ExternalURL string `json:"external_url"`
+	Excerpt     string `json:"excerpt"`
+	ImageURL    string `json:"image_url,omitempty"`
+	HasMedia    bool   `json:"has_media"`
+}
+
+// EntriesV2 represents a list of v2 entries.
+type EntriesV2 []*EntryV2
+
+// EntryPageV2 is one page of the API v2 cursor-based listing. Total is only
+// populated when the request set WithTotal=true, mirroring the server-side
+// opt-in count.
+type EntryPageV2 struct {
+	Entries    EntriesV2 `json:"entries"`
+	Total      *int      `json:"total,omitempty"`
+	Limit      int       `json:"limit"`
+	NextCursor string    `json:"next_cursor,omitempty"`
+	HasMore    bool      `json:"has_more"`
+}
+
+// EntryPageFilterV2 holds the parameters of a v2 entry listing. It
+// deliberately has no Offset field: v2 pages are walked with the opaque
+// Cursor returned by the previous page.
+type EntryPageFilterV2 struct {
+	Status     string
+	Limit      int
+	Order      string
+	Direction  string
+	Starred    string
+	Search     string
+	CategoryID int64
+	FeedID     int64
+	Statuses   []string
+	Tags       []string
+	// Cursor is the next_cursor value returned by the previous page. Leave
+	// it empty to fetch the first page.
+	Cursor string
+	// WithTotal asks the server to compute and return the total number of
+	// matching rows across all pages. It costs an extra count query and
+	// should stay disabled for pure "infinite scroll" walks.
+	WithTotal bool
+}
+
 // EntryIDsFilter holds optional filter and pagination parameters for the entry IDs endpoint.
 type EntryIDsFilter struct {
 	Limit   int

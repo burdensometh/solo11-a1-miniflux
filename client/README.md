@@ -54,3 +54,52 @@ func main() {
     }
 }
 ```
+
+API versions and cursor pagination
+-----------------------------------
+
+Clients constructed without an explicit version option keep using the legacy
+v1 contract: no version header is sent, and every existing method keeps its
+historical signature and behavior.
+
+Opting in to API v2 adds new entry fields (`entry_id`, `external_url`,
+`excerpt`, `image_url`, `has_media`) and cursor-based pagination:
+
+```go
+client := miniflux.NewClientWithOptions(
+    "https://api.example.org",
+    miniflux.WithAPIKey("my-secret-token"),
+    miniflux.WithAPIVersion(miniflux.APIVersion2),
+)
+
+filter := &miniflux.EntryPageFilterV2{
+    Status:    "unread",
+    Order:     "published_at",
+    Direction: "desc",
+    Limit:     100,
+    WithTotal: true, // optional; omit it for pure page walks
+}
+
+for {
+    page, err := client.EntriesV2(filter)
+    if err != nil {
+        // ErrV2Required means the client was not built with WithAPIVersion.
+        fmt.Println(err)
+        return
+    }
+
+    for _, entry := range page.Entries {
+        fmt.Println(entry.EntryID, entry.Excerpt, entry.HasMedia)
+    }
+
+    if !page.HasMore {
+        break
+    }
+    filter.Cursor = page.NextCursor // opaque token, do not parse it
+}
+```
+
+The negotiated version is echoed by the server in the `X-API-Version`
+response header. Cursor tokens expire (after 24 hours): on a bad-request
+response indicating an expired cursor, restart from the first page without a
+cursor.

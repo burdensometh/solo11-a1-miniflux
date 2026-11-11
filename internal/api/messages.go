@@ -3,19 +3,10 @@
 
 package api // import "miniflux.app/v2/internal/api"
 
-import (
-	"miniflux.app/v2/internal/model"
-)
-
 type feedIconResponse struct {
 	ID       int64  `json:"id"`
 	MimeType string `json:"mime_type"`
 	Data     string `json:"data"`
-}
-
-type entriesResponse struct {
-	Total   int           `json:"total"`
-	Entries model.Entries `json:"entries"`
 }
 
 type integrationsStatusResponse struct {

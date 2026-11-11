@@ -26,6 +26,15 @@ type EntryQueryBuilder struct {
 	offset          int
 	fetchEnclosures bool
 	excludeContent  bool
+
+	// cursorConditionStart is the index of the first condition injected by
+	// WithKeysetPagination, or 0 when keyset pagination is not in use. It
+	// lets CountEntriesIgnoringPagination drop the position condition while
+	// keeping every user-supplied filter.
+	cursorConditionStart int
+	// cursorArgCount is the number of positional arguments owned by the
+	// keyset condition (1 for an id-only cursor, 2 for a tuple cursor).
+	cursorArgCount int
 }
 
 // WithEnclosures fetches enclosures for each entry.

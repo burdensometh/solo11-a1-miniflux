@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"miniflux.app/v2/internal/apiversion"
 	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/http/request"
@@ -22,6 +23,26 @@ import (
 	"miniflux.app/v2/internal/storage"
 	"miniflux.app/v2/internal/validator"
 )
+
+// renderEntry returns the single-entry representation matching the negotiated
+// API version.
+func renderEntry(w http.ResponseWriter, r *http.Request, entry *model.Entry) {
+	if apiversion.FromContext(r.Context()) == apiversion.V2 {
+		response.JSON(w, r, newV2Entry(entry))
+		return
+	}
+	response.JSON(w, r, newV1Entry(entry))
+}
+
+// renderCreatedEntry is the 201 counterpart of renderEntry. The status code is
+// part of the historical contract and is preserved for both API versions.
+func renderCreatedEntry(w http.ResponseWriter, r *http.Request, entry *model.Entry) {
+	if apiversion.FromContext(r.Context()) == apiversion.V2 {
+		response.JSONCreated(w, r, newV2Entry(entry))
+		return
+	}
+	response.JSONCreated(w, r, newV1Entry(entry))
+}
 
 func (h *handler) getEntryFromBuilder(w http.ResponseWriter, r *http.Request, b *storage.EntryQueryBuilder) {
 	entry, err := b.GetEntry()
@@ -38,7 +59,7 @@ func (h *handler) getEntryFromBuilder(w http.ResponseWriter, r *http.Request, b 
 	entry.Content = mediaproxy.RewriteDocumentWithAbsoluteProxyURL(entry.Content)
 	entry.Enclosures.ProxifyEnclosureURL(config.Opts.MediaProxyMode(), config.Opts.MediaProxyResourceTypes())
 
-	response.JSON(w, r, entry)
+	renderEntry(w, r, entry)
 }
 
 func (h *handler) getFeedEntryHandler(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +139,17 @@ func (h *handler) getEntriesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) findEntries(w http.ResponseWriter, r *http.Request, feedID int64, categoryID int64) {
+	if apiversion.FromContext(r.Context()) == apiversion.V2 {
+		h.findEntriesV2(w, r, feedID, categoryID)
+		return
+	}
+	h.findEntriesV1(w, r, feedID, categoryID)
+}
+
+// findEntriesV1 preserves the historical limit/offset contract exactly:
+// requests without a version selector always land here and must keep their
+// original query parameters, response envelope and JSON field set.
+func (h *handler) findEntriesV1(w http.ResponseWriter, r *http.Request, feedID int64, categoryID int64) {
 	statuses := request.QueryStringParamList(r, "status")
 	for _, status := range statuses {
 		if err := validator.ValidateEntryStatus(status); err != nil {
@@ -205,7 +237,7 @@ func (h *handler) findEntries(w http.ResponseWriter, r *http.Request, feedID int
 		entries[i].Enclosures.ProxifyEnclosureURL(config.Opts.MediaProxyMode(), config.Opts.MediaProxyResourceTypes())
 	}
 
-	response.JSON(w, r, &entriesResponse{Total: count, Entries: entries})
+	response.JSON(w, r, &v1EntryResponse{Total: count, Entries: newV1Entries(entries)})
 }
 
 func (h *handler) setEntryStatusAndStarredHandler(w http.ResponseWriter, r *http.Request) {
@@ -347,7 +379,7 @@ func (h *handler) updateEntryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.JSONCreated(w, r, entry)
+	renderCreatedEntry(w, r, entry)
 }
 
 func (h *handler) importFeedEntryHandler(w http.ResponseWriter, r *http.Request) {

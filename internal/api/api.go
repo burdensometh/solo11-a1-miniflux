@@ -6,6 +6,7 @@ package api // import "miniflux.app/v2/internal/api"
 import (
 	"net/http"
 
+	"miniflux.app/v2/internal/apiversion"
 	"miniflux.app/v2/internal/storage"
 	"miniflux.app/v2/internal/worker"
 )
@@ -15,7 +16,11 @@ type handler struct {
 	pool  *worker.Pool
 }
 
-// NewHandler returns an http.Handler that handles API v1 calls.
+// NewHandler returns an http.Handler that handles API calls.
+//
+// Requests without an explicit version selector are negotiated as v1 and keep
+// the historical contract; clients opt in to v2 fields and cursor pagination
+// through the X-API-Version header (or an Accept media-type parameter).
 // The returned handler expects the base path to be stripped from the request URL.
 func NewHandler(store *storage.Storage, pool *worker.Pool) http.Handler {
 	handler := &handler{store: store, pool: pool}
@@ -73,5 +78,11 @@ func NewHandler(store *storage.Storage, pool *worker.Pool) http.Handler {
 	mux.HandleFunc("GET /v1/api-keys", handler.getAPIKeysHandler)
 	mux.HandleFunc("DELETE /v1/api-keys/{apiKeyID}", handler.deleteAPIKeyHandler)
 
-	return middleware.withCORSHeaders(middleware.validateAPIKeyAuth(middleware.validateBasicAuth(mux)))
+	return middleware.withCORSHeaders(
+		apiversion.Middleware(
+			middleware.validateAPIKeyAuth(
+				middleware.validateBasicAuth(mux),
+			),
+		),
+	)
 }
