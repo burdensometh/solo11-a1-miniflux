@@ -304,6 +304,22 @@ func NewConfigOptions() *configOptions {
 				rawValue:        "0",
 				valueType:       boolType,
 			},
+			"HEALTH_SAMPLER_INTERVAL": {
+				parsedDuration: 30 * time.Second,
+				rawValue:       "30",
+				valueType:      secondType,
+				validator: func(rawValue string) error {
+					return validateGreaterOrEqualThan(rawValue, 1)
+				},
+			},
+			"HEALTH_STALL_THRESHOLD": {
+				parsedDuration: 5 * time.Minute,
+				rawValue:       "300",
+				valueType:      secondType,
+				validator: func(rawValue string) error {
+					return validateGreaterOrEqualThan(rawValue, 1)
+				},
+			},
 			"INTEGRATION_ALLOW_PRIVATE_NETWORKS": {
 				parsedBoolValue: false,
 				rawValue:        "0",
@@ -821,6 +837,14 @@ func (c *configOptions) HTTPServerTimeout() time.Duration {
 
 func (c *configOptions) HTTPS() bool {
 	return c.options["HTTPS"].parsedBoolValue
+}
+
+func (c *configOptions) HealthSamplerInterval() time.Duration {
+	return c.options["HEALTH_SAMPLER_INTERVAL"].parsedDuration
+}
+
+func (c *configOptions) HealthStallThreshold() time.Duration {
+	return c.options["HEALTH_STALL_THRESHOLD"].parsedDuration
 }
 
 func (c *configOptions) FetcherAllowPrivateNetworks() bool {

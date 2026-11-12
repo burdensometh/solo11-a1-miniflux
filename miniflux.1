@@ -374,6 +374,20 @@ Forces cookies to use secure flag and send HSTS header.
 .IP
 Default is disabled.
 .TP
+.B HEALTH_SAMPLER_INTERVAL
+Interval in seconds between two samplings of the background refresh
+pipeline (worker queue depth and overdue feed backlog).
+Sampling is the only component that queries the database for health data;
+the /workerz probe itself performs no I/O.
+.IP
+Default is 30 seconds.
+.TP
+.B HEALTH_STALL_THRESHOLD
+Time in seconds without any worker picking up a job, while refresh work
+is pending, after which the /workerz probe reports the pipeline as stalled.
+.IP
+Default is 300 seconds.
+.TP
 .B INTEGRATION_ALLOW_PRIVATE_NETWORKS
 Set to 1 to allow outgoing integration requests to private or loopback networks.
 .IP

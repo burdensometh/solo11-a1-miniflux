@@ -17,6 +17,11 @@ import (
 
 func newRouter(store *storage.Storage, pool *worker.Pool) http.Handler {
 	readinessProbe := newReadinessProbe(store)
+	workerHealthProbe := newWorkerHealthProbe(
+		pool.Health(),
+		config.Opts.HealthStallThreshold(),
+		config.Opts.HealthSamplerInterval(),
+	)
 
 	// Application routes served under the base path.
 	appMux := http.NewServeMux()
@@ -62,6 +67,7 @@ func newRouter(store *storage.Storage, pool *worker.Pool) http.Handler {
 	rootMux.HandleFunc("/healthz", livenessProbe)
 	rootMux.HandleFunc("/readiness", readinessProbe)
 	rootMux.HandleFunc("/readyz", readinessProbe)
+	rootMux.HandleFunc("/workerz", workerHealthProbe)
 
 	basePath := config.Opts.BasePath()
 	if basePath != "" {

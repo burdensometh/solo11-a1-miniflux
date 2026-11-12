@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/health"
 	"miniflux.app/v2/internal/metric"
 	"miniflux.app/v2/internal/model"
 	feedHandler "miniflux.app/v2/internal/reader/handler"
@@ -16,8 +17,9 @@ import (
 )
 
 type worker struct {
-	id    int
-	store *storage.Storage
+	id     int
+	store  *storage.Storage
+	health *health.State
 }
 
 // Run processes feed refresh jobs from the channel until the pool is shut down.
@@ -43,8 +45,10 @@ func (w *worker) Run(c <-chan model.Job, shutdown <-chan struct{}, wg *sync.Wait
 			slog.String("feed_url", job.FeedURL),
 		)
 
+		w.health.RecordJobStarted()
 		startTime := time.Now()
 		localizedError := feedHandler.RefreshFeed(w.store, job.UserID, job.FeedID, false)
+		w.health.RecordJobCompleted()
 
 		if config.Opts.HasMetricsCollector() {
 			status := metric.StatusSuccess

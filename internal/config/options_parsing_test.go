@@ -1588,6 +1588,42 @@ func TestMetricsRefreshIntervalOptionParsing(t *testing.T) {
 	}
 }
 
+func TestHealthSamplerIntervalOptionParsing(t *testing.T) {
+	configParser := NewConfigParser()
+
+	if configParser.options.HealthSamplerInterval().Seconds() != 30 {
+		t.Fatalf("Expected HEALTH_SAMPLER_INTERVAL to be 30 seconds by default")
+	}
+
+	if err := configParser.parseLines([]string{"HEALTH_SAMPLER_INTERVAL=15"}); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if configParser.options.HealthSamplerInterval().Seconds() != 15 {
+		t.Fatalf("Expected HEALTH_SAMPLER_INTERVAL to be 15 seconds")
+	}
+
+	if err := configParser.parseLines([]string{"HEALTH_SAMPLER_INTERVAL=0"}); err == nil {
+		t.Fatal("Expected an error when HEALTH_SAMPLER_INTERVAL is lower than 1 second")
+	}
+}
+
+func TestHealthStallThresholdOptionParsing(t *testing.T) {
+	configParser := NewConfigParser()
+
+	if configParser.options.HealthStallThreshold().Seconds() != 300 {
+		t.Fatalf("Expected HEALTH_STALL_THRESHOLD to be 300 seconds by default")
+	}
+
+	if err := configParser.parseLines([]string{"HEALTH_STALL_THRESHOLD=120"}); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if configParser.options.HealthStallThreshold().Seconds() != 120 {
+		t.Fatalf("Expected HEALTH_STALL_THRESHOLD to be 120 seconds")
+	}
+}
+
 func TestPollingFrequencyOptionParsing(t *testing.T) {
 	configParser := NewConfigParser()
 

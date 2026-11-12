@@ -63,3 +63,36 @@ func TestShutdownIsIdempotent(t *testing.T) {
 	pool.Shutdown()
 	pool.Shutdown()
 }
+
+func TestPushRecordsJobsInHealthState(t *testing.T) {
+	pool := NewPool(nil, 2)
+	pool.Shutdown()
+
+	// Jobs are discarded after shutdown, but the push itself must still be
+	// counted so the health view reflects scheduler activity.
+	pool.Push(model.JobList{{FeedID: 1}, {FeedID: 2}, {FeedID: 3}})
+
+	snap := pool.Health().Snapshot()
+	if snap.Pushed != 3 {
+		t.Fatalf("expected 3 pushed jobs in health state, got %d", snap.Pushed)
+	}
+	if snap.Completed != 0 || snap.InFlight != 0 {
+		t.Fatalf("discarded jobs must not be counted as processed, got %+v", snap)
+	}
+}
+
+func TestHealthStateIsNeverNilAndExposesPoolSize(t *testing.T) {
+	pool := NewPool(nil, 5)
+	defer pool.Shutdown()
+
+	if pool.Health() == nil {
+		t.Fatal("pool must always expose a health registry")
+	}
+	if got := pool.Health().Snapshot().Workers; got != 5 {
+		t.Fatalf("expected 5 workers in health snapshot, got %d", got)
+	}
+	// Unbuffered channel with idle workers always reports zero queued jobs.
+	if got := pool.QueueLength(); got != 0 {
+		t.Fatalf("expected empty queue, got %d", got)
+	}
+}

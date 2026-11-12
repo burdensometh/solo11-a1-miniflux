@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/health"
 	"miniflux.app/v2/internal/http/server"
 	"miniflux.app/v2/internal/metric"
 	"miniflux.app/v2/internal/storage"
@@ -31,6 +32,30 @@ func startDaemon(store *storage.Storage) {
 	signal.Notify(reload, syscall.SIGHUP)
 
 	pool := worker.NewPool(store, config.Opts.WorkerPoolSize())
+
+	healthCtx, cancelHealth := context.WithCancel(context.Background())
+	var healthObserver func(health.Snapshot)
+	if config.Opts.HasMetricsCollector() {
+		healthObserver = metric.ObserveRefreshHealth
+	}
+
+	// Only the process that owns the scheduler can be held responsible for
+	// database-level backlog. On web-only instances (scheduler disabled or
+	// maintenance mode) the sampler skips the backlog query entirely, which
+	// both avoids false stall alerts and removes pointless database load.
+	var healthStore health.BacklogReader
+	if config.Opts.HasSchedulerService() && !config.Opts.HasMaintenanceMode() {
+		healthStore = store
+	}
+
+	go pool.Health().RunSampler(
+		healthCtx,
+		healthStore,
+		pool.QueueLength,
+		config.Opts.HealthSamplerInterval(),
+		config.Opts.PollingParsingErrorLimit(),
+		healthObserver,
+	)
 
 	if config.Opts.HasSchedulerService() && !config.Opts.HasMaintenanceMode() {
 		runScheduler(store, pool)
@@ -83,6 +108,7 @@ func startDaemon(store *storage.Storage) {
 		case <-stop:
 			slog.Debug("Shutting down the process")
 			cancelMetrics()
+			cancelHealth()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
