@@ -139,6 +139,34 @@ func (s Subscription) String() string {
 // Subscriptions represents a list of subscriptions.
 type Subscriptions []*Subscription
 
+// PreviewEntry is a lightweight view of a feed entry shown during discovery.
+type PreviewEntry struct {
+	Title     string    `json:"title"`
+	URL       string    `json:"url"`
+	Author    string    `json:"author,omitempty"`
+	Published time.Time `json:"published_at"`
+}
+
+// FeedPreview contains the recent entries of a discovered feed candidate.
+type FeedPreview struct {
+	FeedTitle string          `json:"feed_title,omitempty"`
+	SiteURL   string          `json:"site_url,omitempty"`
+	Entries   []*PreviewEntry `json:"entries"`
+	LastBuild time.Time       `json:"last_build,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	FromCache bool            `json:"from_cache"`
+	FetchedAt time.Time       `json:"fetched_at"`
+}
+
+// FeedPreviewResult maps a requested feed URL to its preview.
+type FeedPreviewResult struct {
+	FeedURL string       `json:"feed_url"`
+	Preview *FeedPreview `json:"preview"`
+}
+
+// FeedPreviewResults represents a list of feed preview results.
+type FeedPreviewResults []*FeedPreviewResult
+
 // Feed represents a Miniflux feed.
 type Feed struct {
 	ID                          int64     `json:"id"`

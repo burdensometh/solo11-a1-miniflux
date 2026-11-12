@@ -21,3 +21,30 @@ func ValidateSubscriptionDiscovery(request *model.SubscriptionDiscoveryRequest) 
 
 	return nil
 }
+
+// MaxFeedPreviewURLs limits the number of candidates a single preview request
+// can ask for.
+const MaxFeedPreviewURLs = 20
+
+// ValidateFeedPreview validates feed preview requests.
+func ValidateFeedPreview(request *model.FeedPreviewRequest) *locale.LocalizedError {
+	if len(request.FeedURLs) == 0 {
+		return locale.NewLocalizedError("error.invalid_site_url")
+	}
+
+	if len(request.FeedURLs) > MaxFeedPreviewURLs {
+		return locale.NewLocalizedError("error.invalid_site_url")
+	}
+
+	for _, feedURL := range request.FeedURLs {
+		if !urllib.IsAbsoluteURL(feedURL) {
+			return locale.NewLocalizedError("error.invalid_site_url")
+		}
+	}
+
+	if request.ProxyURL != "" && !urllib.IsValidProxyURL(request.ProxyURL) {
+		return locale.NewLocalizedError("error.invalid_feed_proxy_url")
+	}
+
+	return nil
+}

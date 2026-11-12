@@ -385,6 +385,31 @@ func (c *Client) DiscoverContext(ctx context.Context, url string) (Subscriptions
 	return subscriptions, nil
 }
 
+// FeedPreviews fetches a short preview of each feed URL. A feed that cannot
+// be fetched is returned with its Preview Error field set instead of failing
+// the whole request.
+func (c *Client) FeedPreviews(feedURLs []string) (FeedPreviewResults, error) {
+	ctx, cancel := withDefaultTimeout()
+	defer cancel()
+	return c.FeedPreviewsContext(ctx, feedURLs)
+}
+
+// FeedPreviewsContext is like FeedPreviews but takes a context.
+func (c *Client) FeedPreviewsContext(ctx context.Context, feedURLs []string) (FeedPreviewResults, error) {
+	body, err := c.request.Post(ctx, "/v1/discover/previews", map[string][]string{"feed_urls": feedURLs})
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+
+	var results FeedPreviewResults
+	if err := json.NewDecoder(body).Decode(&results); err != nil {
+		return nil, fmt.Errorf("miniflux: response error (%v)", err)
+	}
+
+	return results, nil
+}
+
 // Categories retrieves the list of categories.
 func (c *Client) Categories() (Categories, error) {
 	ctx, cancel := withDefaultTimeout()

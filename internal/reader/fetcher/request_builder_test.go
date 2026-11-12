@@ -910,3 +910,47 @@ func configureFetcherPrivateNetworkOptions(t *testing.T, privateNetworks, privat
 		config.Opts = previousOptions
 	})
 }
+
+func TestRequestBuilder_HeadersReturnsDetachedCopy(t *testing.T) {
+	builder := NewRequestBuilder().WithHeader("X-Test", "value")
+
+	headers := builder.Headers()
+	headers.Set("X-Test", "mutated")
+	headers.Set("X-Only-In-Copy", "value")
+
+	if builder.headers.Get("X-Test") != "value" {
+		t.Fatal("Mutating the returned header map must not change the builder's headers")
+	}
+	if builder.headers.Get("X-Only-In-Copy") != "" {
+		t.Fatal("Headers added to the returned map must not leak into the builder")
+	}
+}
+
+func TestRequestBuilder_TransportFingerprintDistinguishesSettings(t *testing.T) {
+	base := NewRequestBuilder()
+	baseFingerprint := base.TransportFingerprint()
+
+	cases := []struct {
+		name    string
+		builder *RequestBuilder
+	}{
+		{"custom feed proxy", NewRequestBuilder().WithCustomFeedProxyURL("http://proxy.example.org:8080")},
+		{"tls errors ignored", NewRequestBuilder().IgnoreTLSErrors(true)},
+		{"http2 disabled", NewRequestBuilder().DisableHTTP2(true)},
+		{"redirects disabled", NewRequestBuilder().WithoutRedirects()},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.builder.TransportFingerprint() == baseFingerprint {
+				t.Fatalf("Fingerprint for %q should differ from the default builder", tc.name)
+			}
+		})
+	}
+
+	// Two builders with the same settings must produce the same fingerprint.
+	another := NewRequestBuilder().IgnoreTLSErrors(true)
+	if NewRequestBuilder().IgnoreTLSErrors(true).TransportFingerprint() != another.TransportFingerprint() {
+		t.Fatal("Identical transport settings must produce identical fingerprints")
+	}
+}

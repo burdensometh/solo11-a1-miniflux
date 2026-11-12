@@ -28,5 +28,20 @@ This example discovers subscriptions on a website:
 		return
 	}
 	fmt.Println(subscriptions)
+
+This example previews the recent entries of discovered feed URLs. A feed that
+cannot be fetched is returned with an error instead of failing the whole
+request:
+
+	feedURLs := make([]string, 0, len(subscriptions))
+	for _, subscription := range subscriptions {
+		feedURLs = append(feedURLs, subscription.URL)
+	}
+	previews, err := client.FeedPreviews(feedURLs)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(previews)
 */
 package client // import "miniflux.app/v2/client"

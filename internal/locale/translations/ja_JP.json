@@ -637,5 +637,9 @@
     ],
     "time_elapsed.yesterday": "昨日",
     "tooltip.keyboard_shortcuts": "キーボードショートカット: %s",
-    "tooltip.logged_user": "%s としてログイン中"
+    "tooltip.logged_user": "%s としてログイン中",
+    "page.add_feed.preview_from_cache": "(cached preview)",
+    "page.add_feed.preview_latest_entry": "Latest entry:",
+    "page.add_feed.preview_no_entries": "This feed does not contain any entry.",
+    "page.add_feed.preview_unavailable": "Preview unavailable: this feed could not be fetched right now. You can still subscribe to it."
 }

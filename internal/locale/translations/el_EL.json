@@ -655,5 +655,9 @@
     ],
     "time_elapsed.yesterday": "χθες",
     "tooltip.keyboard_shortcuts": "Συντόμευση πληκτρολογίου: % s",
-    "tooltip.logged_user": "Συνδεδεμένος/η ως %s"
+    "tooltip.logged_user": "Συνδεδεμένος/η ως %s",
+    "page.add_feed.preview_from_cache": "(cached preview)",
+    "page.add_feed.preview_latest_entry": "Latest entry:",
+    "page.add_feed.preview_no_entries": "This feed does not contain any entry.",
+    "page.add_feed.preview_unavailable": "Preview unavailable: this feed could not be fetched right now. You can still subscribe to it."
 }

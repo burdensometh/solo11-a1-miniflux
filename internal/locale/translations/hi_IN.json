@@ -655,5 +655,9 @@
     ],
     "time_elapsed.yesterday": "कल",
     "tooltip.keyboard_shortcuts": "कुंजीपटल शॉर्टकट: %s",
-    "tooltip.logged_user": "%s के रूप में लॉग इन किया"
+    "tooltip.logged_user": "%s के रूप में लॉग इन किया",
+    "page.add_feed.preview_from_cache": "(cached preview)",
+    "page.add_feed.preview_latest_entry": "Latest entry:",
+    "page.add_feed.preview_no_entries": "This feed does not contain any entry.",
+    "page.add_feed.preview_unavailable": "Preview unavailable: this feed could not be fetched right now. You can still subscribe to it."
 }

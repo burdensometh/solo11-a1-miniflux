@@ -40,3 +40,50 @@ func TestValidateSubscriptionDiscovery(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateFeedPreview(t *testing.T) {
+	tests := []struct {
+		name    string
+		req     *model.FeedPreviewRequest
+		wantErr bool
+	}{
+		{
+			name:    "valid feed url",
+			req:     &model.FeedPreviewRequest{FeedURLs: []string{"https://example.org/feed.xml"}},
+			wantErr: false,
+		},
+		{
+			name:    "empty url list",
+			req:     &model.FeedPreviewRequest{FeedURLs: nil},
+			wantErr: true,
+		},
+		{
+			name:    "malformed url",
+			req:     &model.FeedPreviewRequest{FeedURLs: []string{"example.org/feed.xml"}},
+			wantErr: true,
+		},
+		{
+			name:    "invalid proxy url",
+			req:     &model.FeedPreviewRequest{FeedURLs: []string{"https://example.org/feed.xml"}, ProxyURL: "example.org"},
+			wantErr: true,
+		},
+		{
+			name:    "too many urls",
+			req:     &model.FeedPreviewRequest{FeedURLs: make([]string, MaxFeedPreviewURLs+1)},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "too many urls" {
+				for i := range tc.req.FeedURLs {
+					tc.req.FeedURLs[i] = "https://example.org/feed.xml"
+				}
+			}
+			if err := ValidateFeedPreview(tc.req); (err != nil) != tc.wantErr {
+				t.Fatalf("expected error %v, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}

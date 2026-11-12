@@ -637,5 +637,9 @@
     ],
     "time_elapsed.yesterday": "昨天",
     "tooltip.keyboard_shortcuts": "快速鍵：%s",
-    "tooltip.logged_user": "目前登入 %s"
+    "tooltip.logged_user": "目前登入 %s",
+    "page.add_feed.preview_from_cache": "(cached preview)",
+    "page.add_feed.preview_latest_entry": "Latest entry:",
+    "page.add_feed.preview_no_entries": "This feed does not contain any entry.",
+    "page.add_feed.preview_unavailable": "Preview unavailable: this feed could not be fetched right now. You can still subscribe to it."
 }

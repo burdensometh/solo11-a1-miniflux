@@ -637,5 +637,9 @@
     ],
     "time_elapsed.yesterday": "어제",
     "tooltip.keyboard_shortcuts": "키보드 단축키: %s",
-    "tooltip.logged_user": "%s로 로그인 중"
+    "tooltip.logged_user": "%s로 로그인 중",
+    "page.add_feed.preview_from_cache": "(cached preview)",
+    "page.add_feed.preview_latest_entry": "Latest entry:",
+    "page.add_feed.preview_no_entries": "This feed does not contain any entry.",
+    "page.add_feed.preview_unavailable": "Preview unavailable: this feed could not be fetched right now. You can still subscribe to it."
 }

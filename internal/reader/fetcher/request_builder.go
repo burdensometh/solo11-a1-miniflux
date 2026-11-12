@@ -172,6 +172,37 @@ func (r *RequestBuilder) WithoutCompression() *RequestBuilder {
 	return r
 }
 
+// Headers returns a copy of the headers configured on the builder. It is used
+// to compute a cache fingerprint of the request settings; callers cannot
+// mutate the builder's internal header map through it.
+func (r *RequestBuilder) Headers() http.Header {
+	return r.headers.Clone()
+}
+
+// TransportFingerprint summarizes the transport settings that can change the
+// response of a request (proxy, TLS verification, HTTP/2, credentials). It is
+// used together with Headers to partition cached previews so that responses
+// fetched under different access conditions are never mixed.
+func (r *RequestBuilder) TransportFingerprint() string {
+	return fmt.Sprintf(
+		"proxy=%s|feedProxy=%s|useProxy=%t|tlsIgnore=%t|http2Disabled=%t|redirectsDisabled=%t|cookieSite=%s",
+		pointerURLToString(r.clientProxyURL),
+		r.feedProxyURL,
+		r.useClientProxy,
+		r.ignoreTLSErrors,
+		r.disableHTTP2,
+		r.withoutRedirects,
+		r.cookieSiteHost,
+	)
+}
+
+func pointerURLToString(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	return u.String()
+}
+
 func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, error) {
 	var clientProxyURL *url.URL
 	proxySource := proxySourceNone

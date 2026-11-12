@@ -41,6 +41,30 @@
         <div class="radio-group">
             <label title="{{ .URL }}"><input type="radio" name="url" value="{{ .URL }}"> {{ .Title }}</label> ({{ .Type }})
             <small title="Type = {{ .Type }}"><a href="{{ .URL }}" {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ else }}rel="noopener"{{ end }}>{{ .URL }}</a></small>
+
+            {{ with .Preview }}
+                {{ if .Error }}
+                    <p class="alert alert-error" role="alert">{{ t "page.add_feed.preview_unavailable" }}</p>
+                {{ else if .Entries }}
+                    <div class="feed-preview">
+                        <p class="feed-preview-meta">
+                            {{ t "page.add_feed.preview_latest_entry" }}
+                            <time datetime="{{ isodate .LastBuild }}" title="{{ isodate .LastBuild }}">{{ elapsed $.user.Timezone .LastBuild }}</time>
+                            {{ if .FromCache }}<span class="feed-preview-cached">{{ t "page.add_feed.preview_from_cache" }}</span>{{ end }}
+                        </p>
+                        <ul>
+                            {{ range .Entries }}
+                                <li>
+                                    <a href="{{ .URL }}" {{ if $.user.OpenExternalLinksInNewTab }}target="_blank" rel="noopener"{{ else }}rel="noopener"{{ end }}>{{ .Title }}</a>
+                                    <time datetime="{{ isodate .Published }}" title="{{ isodate .Published }}">{{ elapsed $.user.Timezone .Published }}</time>
+                                </li>
+                            {{ end }}
+                        </ul>
+                    </div>
+                {{ else }}
+                    <p class="feed-preview-empty">{{ t "page.add_feed.preview_no_entries" }}</p>
+                {{ end }}
+            {{ end }}
         </div>
     {{ end }}
 

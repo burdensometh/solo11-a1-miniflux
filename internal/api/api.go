@@ -39,6 +39,7 @@ func NewHandler(store *storage.Storage, pool *worker.Pool) http.Handler {
 	mux.HandleFunc("GET /v1/categories/{categoryID}/entries", handler.getCategoryEntriesHandler)
 	mux.HandleFunc("GET /v1/categories/{categoryID}/entries/{entryID}", handler.getCategoryEntryHandler)
 	mux.HandleFunc("POST /v1/discover", handler.discoverSubscriptionsHandler)
+	mux.HandleFunc("POST /v1/discover/previews", handler.feedPreviewHandler)
 	mux.HandleFunc("POST /v1/feeds", handler.createFeedHandler)
 	mux.HandleFunc("GET /v1/feeds", handler.getFeedsHandler)
 	mux.HandleFunc("GET /v1/feeds/counters", handler.fetchCountersHandler)

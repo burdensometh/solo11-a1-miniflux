@@ -637,5 +637,9 @@
     ],
     "time_elapsed.yesterday": "cha-hng",
     "tooltip.keyboard_shortcuts": "Khoài-sok khí：%s",
-    "tooltip.logged_user": "Chit-má teng-lo̍k--ê:  %s"
+    "tooltip.logged_user": "Chit-má teng-lo̍k--ê:  %s",
+    "page.add_feed.preview_from_cache": "(cached preview)",
+    "page.add_feed.preview_latest_entry": "Latest entry:",
+    "page.add_feed.preview_no_entries": "This feed does not contain any entry.",
+    "page.add_feed.preview_unavailable": "Preview unavailable: this feed could not be fetched right now. You can still subscribe to it."
 }

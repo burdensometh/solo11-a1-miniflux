@@ -15,3 +15,17 @@ type SubscriptionDiscoveryRequest struct {
 	AllowSelfSignedCertificates bool   `json:"allow_self_signed_certificates"`
 	DisableHTTP2                bool   `json:"disable_http2"`
 }
+
+// FeedPreviewRequest represents a request to preview one or several feed URLs
+// discovered from a website.
+type FeedPreviewRequest struct {
+	FeedURLs                    []string `json:"feed_urls"`
+	UserAgent                   string   `json:"user_agent"`
+	Cookie                      string   `json:"cookie"`
+	Username                    string   `json:"username"`
+	Password                    string   `json:"password"`
+	ProxyURL                    string   `json:"proxy_url"`
+	FetchViaProxy               bool     `json:"fetch_via_proxy"`
+	AllowSelfSignedCertificates bool     `json:"allow_self_signed_certificates"`
+	DisableHTTP2                bool     `json:"disable_http2"`
+}

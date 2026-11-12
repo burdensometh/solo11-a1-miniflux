@@ -471,6 +471,36 @@ func TestDiscover(t *testing.T) {
 	}
 }
 
+func TestFeedPreviews(t *testing.T) {
+	expected := FeedPreviewResults{
+		{
+			FeedURL: "http://example.com/feed.xml",
+			Preview: &FeedPreview{
+				FeedTitle: "Example",
+				Entries: []*PreviewEntry{
+					{Title: "First entry", URL: "http://example.com/1"},
+				},
+			},
+		},
+	}
+	client := NewClientWithOptions(
+		"http://mf",
+		WithHTTPClient(
+			newFakeHTTPClient(t, func(t *testing.T, req *http.Request) *http.Response {
+				expectRequest(t, http.MethodPost, "http://mf/v1/discover/previews", func(r io.Reader) {
+					expectFromJSON(t, r, &map[string][]string{"feed_urls": {"http://example.com/feed.xml"}})
+				}, req)
+				return jsonResponseFrom(t, http.StatusOK, http.Header{}, expected)
+			})))
+	res, err := client.FeedPreviewsContext(t.Context(), []string{"http://example.com/feed.xml"})
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if !reflect.DeepEqual(res, expected) {
+		t.Fatalf("Expected %+v, got %+v", expected, res)
+	}
+}
+
 func TestCategories(t *testing.T) {
 	expected := Categories{
 		{

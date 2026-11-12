@@ -727,5 +727,9 @@
     ],
     "time_elapsed.yesterday": "أمس",
     "tooltip.keyboard_shortcuts": "اختصار لوحة المفاتيح: %s",
-    "tooltip.logged_user": "تم تسجيل الدخول باسم %s"
+    "tooltip.logged_user": "تم تسجيل الدخول باسم %s",
+    "page.add_feed.preview_from_cache": "(cached preview)",
+    "page.add_feed.preview_latest_entry": "Latest entry:",
+    "page.add_feed.preview_no_entries": "This feed does not contain any entry.",
+    "page.add_feed.preview_unavailable": "Preview unavailable: this feed could not be fetched right now. You can still subscribe to it."
 }

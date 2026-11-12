@@ -14,6 +14,7 @@ import (
 	"miniflux.app/v2/internal/proxyrotator"
 	"miniflux.app/v2/internal/reader/fetcher"
 	feedHandler "miniflux.app/v2/internal/reader/handler"
+	"miniflux.app/v2/internal/reader/preview"
 	"miniflux.app/v2/internal/reader/subscription"
 	"miniflux.app/v2/internal/ui/form"
 	"miniflux.app/v2/internal/ui/view"
@@ -150,6 +151,12 @@ func (h *handler) submitSubscription(w http.ResponseWriter, r *http.Request) {
 
 		response.HTMLRedirect(w, r, h.routePath("/feed/%d/entries", feed.ID))
 	case n > 1:
+		// Fetch a short preview of every candidate concurrently. Each failure
+		// is recorded on the candidate itself instead of aborting the flow: the
+		// user can still inspect the feed URLs and subscribe manually.
+		preview.NewFetcher(requestBuilder, subscriptionForm.Cookie).
+			AttachPreviews(subscriptions.FeedReferences())
+
 		view := view.New(h.tpl, r)
 		view.Set("subscriptions", subscriptions)
 		view.Set("form", subscriptionForm)
