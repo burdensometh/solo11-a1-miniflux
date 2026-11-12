@@ -576,6 +576,26 @@ func (s *Storage) RemoveUser(userID int64) error {
 	return nil
 }
 
+// UserIDs returns the ID of every user, sorted by ID.
+func (s *Storage) UserIDs() ([]int64, error) {
+	rows, err := s.db.Query(`SELECT id FROM users ORDER BY id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("storage: unable to fetch user IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var userIDs []int64
+	for rows.Next() {
+		var userID int64
+		if err := rows.Scan(&userID); err != nil {
+			return nil, fmt.Errorf("storage: unable to scan user ID: %w", err)
+		}
+		userIDs = append(userIDs, userID)
+	}
+
+	return userIDs, rows.Err()
+}
+
 // Users returns all users.
 func (s *Storage) Users() (model.Users, error) {
 	query := `

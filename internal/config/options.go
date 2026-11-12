@@ -131,6 +131,26 @@ func NewConfigOptions() *configOptions {
 					return validateGreaterOrEqualThan(rawValue, 1)
 				},
 			},
+			"CLEANUP_ARCHIVE_BATCH_DELAY_MILLISECONDS": {
+				parsedIntValue: 250,
+				rawValue:       "250",
+				valueType:      intType,
+				validator: func(rawValue string) error {
+					return validateGreaterOrEqualThan(rawValue, 0)
+				},
+			},
+			"CLEANUP_ARCHIVE_WINDOW_START": {
+				parsedStringValue: "",
+				rawValue:          "",
+				valueType:         stringType,
+				validator:         validateTimeOfDay,
+			},
+			"CLEANUP_ARCHIVE_WINDOW_END": {
+				parsedStringValue: "",
+				rawValue:          "",
+				valueType:         stringType,
+				validator:         validateTimeOfDay,
+			},
 			"CLEANUP_ARCHIVE_READ_DAYS": {
 				parsedDuration: time.Hour * 24 * 60,
 				rawValue:       "60",
@@ -682,6 +702,35 @@ func (c *configOptions) CertFile() string {
 
 func (c *configOptions) CleanupArchiveBatchSize() int {
 	return c.options["CLEANUP_ARCHIVE_BATCH_SIZE"].parsedIntValue
+}
+
+func (c *configOptions) CleanupArchiveBatchDelay() time.Duration {
+	return time.Duration(c.options["CLEANUP_ARCHIVE_BATCH_DELAY_MILLISECONDS"].parsedIntValue) * time.Millisecond
+}
+
+func (c *configOptions) CleanupArchiveWindowStart() string {
+	return c.options["CLEANUP_ARCHIVE_WINDOW_START"].parsedStringValue
+}
+
+func (c *configOptions) CleanupArchiveWindowEnd() string {
+	return c.options["CLEANUP_ARCHIVE_WINDOW_END"].parsedStringValue
+}
+
+// CleanupArchiveWindow returns the daily time window during which old entries
+// are allowed to be archived, expressed as minutes since midnight in the
+// server local time zone. The second return value is false when no window is
+// configured, meaning archiving is allowed at any time.
+func (c *configOptions) CleanupArchiveWindow() (startMinutes, endMinutes int, ok bool) {
+	start := c.options["CLEANUP_ARCHIVE_WINDOW_START"].parsedStringValue
+	end := c.options["CLEANUP_ARCHIVE_WINDOW_END"].parsedStringValue
+	if start == "" || end == "" {
+		return 0, 0, false
+	}
+
+	// Both values are validated at parsing time, so errors cannot happen here.
+	startMinutes, _ = parseTimeOfDay(start)
+	endMinutes, _ = parseTimeOfDay(end)
+	return startMinutes, endMinutes, true
 }
 
 func (c *configOptions) CleanupArchiveReadInterval() time.Duration {

@@ -4,11 +4,14 @@
 package cli // import "miniflux.app/v2/internal/cli"
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/database"
@@ -241,7 +244,12 @@ func Parse() {
 	}
 
 	if flagRunCleanupTasks {
-		runCleanupTasks(store)
+		// The cleanup can take a long time on large databases: make sure it
+		// stops gracefully on Ctrl-C/SIGTERM. Each batch being committed
+		// separately, the next run resumes where this one stopped.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		runCleanupTasks(ctx, store)
 		return
 	}
 

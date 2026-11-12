@@ -364,48 +364,55 @@ func (s *Storage) RefreshFeedEntries(userID, feedID int64, entries model.Entries
 	return newEntries, nil
 }
 
-// ArchiveEntries deletes entries older than the given interval and records tombstones so they are not re-ingested.
-func (s *Storage) ArchiveEntries(status string, interval time.Duration, limit int) (int64, error) {
-	if interval < 0 || limit <= 0 {
+// ArchiveEntriesBatch deletes up to limit entries of a single user and records
+// tombstones so they are not re-ingested. It returns the number of entries
+// actually deleted.
+//
+// Only entries last touched before the cutoff are eligible: starred entries
+// and shared entries are always preserved, and changed_at is refreshed each
+// time the user interacts with an entry (marking it read/unread, toggling the
+// starred state), so recently read entries are never removed.
+//
+// The batch is scoped to a single user on purpose: it uses the
+// entries_user_status_changed_idx index and keeps each transaction small
+// enough to avoid interfering with concurrent feed refreshes.
+func (s *Storage) ArchiveEntriesBatch(userID int64, status string, cutoff time.Time, limit int) (int64, error) {
+	if limit <= 0 {
 		return 0, nil
 	}
 
 	query := `
 		WITH to_delete AS (
-			SELECT id, feed_id, hash
+			SELECT id
 			FROM entries
 			WHERE
-				status=$1 AND
+				user_id=$1 AND
+				status=$2 AND
 				starred is false AND
 				share_code='' AND
-				created_at < now() - $2::interval
-			ORDER BY created_at ASC
+				changed_at < $3
+			ORDER BY changed_at ASC
+			LIMIT $4
 			FOR UPDATE SKIP LOCKED
-			LIMIT $3
 		), deleted AS (
 			DELETE FROM entries
 			USING to_delete
 			WHERE entries.id = to_delete.id
 			RETURNING entries.feed_id, entries.hash
+		), tombstoned AS (
+			INSERT INTO entry_tombstones (feed_id, hash)
+			SELECT feed_id, hash FROM deleted WHERE hash <> ''
+			ON CONFLICT (feed_id, hash) DO NOTHING
 		)
-		INSERT INTO entry_tombstones (feed_id, hash)
-		SELECT feed_id, hash FROM deleted WHERE hash <> ''
-		ON CONFLICT (feed_id, hash) DO NOTHING
+		SELECT count(*) FROM deleted
 	`
 
-	days := max(int(interval/(24*time.Hour)), 1)
-
-	result, err := s.db.Exec(query, status, fmt.Sprintf("%d days", days), limit)
-	if err != nil {
-		return 0, fmt.Errorf(`store: unable to archive %s entries: %v`, status, err)
+	var deleted int64
+	if err := s.db.QueryRow(query, userID, status, cutoff, limit).Scan(&deleted); err != nil {
+		return 0, fmt.Errorf(`store: unable to archive %s entries for user #%d: %v`, status, userID, err)
 	}
 
-	count, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf(`store: unable to get the number of rows affected: %v`, err)
-	}
-
-	return count, nil
+	return deleted, nil
 }
 
 // SetEntriesStatus update the status of the given list of entries.

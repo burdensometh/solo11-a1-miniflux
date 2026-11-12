@@ -4,6 +4,7 @@
 package cli // import "miniflux.app/v2/internal/cli"
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	"miniflux.app/v2/internal/worker"
 )
 
-func runScheduler(store *storage.Storage, pool *worker.Pool) {
+func runScheduler(ctx context.Context, store *storage.Storage, pool *worker.Pool) {
 	slog.Debug(`Starting background scheduler...`)
 
 	go feedScheduler(
@@ -25,6 +26,7 @@ func runScheduler(store *storage.Storage, pool *worker.Pool) {
 	)
 
 	go cleanupScheduler(
+		ctx,
 		store,
 		config.Opts.CleanupFrequency(),
 	)
@@ -50,8 +52,17 @@ func feedScheduler(store *storage.Storage, pool *worker.Pool, frequency time.Dur
 	}
 }
 
-func cleanupScheduler(store *storage.Storage, frequency time.Duration) {
-	for range time.Tick(frequency) {
-		runCleanupTasks(store)
+func cleanupScheduler(ctx context.Context, store *storage.Storage, frequency time.Duration) {
+	ticker := time.NewTicker(frequency)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Debug("Stopping cleanup scheduler")
+			return
+		case <-ticker.C:
+			runCleanupTasks(ctx, store)
+		}
 	}
 }

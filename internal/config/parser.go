@@ -90,6 +90,10 @@ func (c *configOptions) Validate() error {
 		return errors.New("SCHEDULER_ENTRY_FREQUENCY_MIN_INTERVAL must be less than or equal to SCHEDULER_ENTRY_FREQUENCY_MAX_INTERVAL")
 	}
 
+	if (c.options["CLEANUP_ARCHIVE_WINDOW_START"].parsedStringValue != "") != (c.options["CLEANUP_ARCHIVE_WINDOW_END"].parsedStringValue != "") {
+		return errors.New("CLEANUP_ARCHIVE_WINDOW_START and CLEANUP_ARCHIVE_WINDOW_END must both be provided")
+	}
+
 	return nil
 }
 

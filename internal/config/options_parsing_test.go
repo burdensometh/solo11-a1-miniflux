@@ -1233,6 +1233,75 @@ func TestCleanupArchiveUnreadIntervalOptionParsing(t *testing.T) {
 	}
 }
 
+func TestCleanupArchiveBatchDelayOptionParsing(t *testing.T) {
+	configParser := NewConfigParser()
+
+	if configParser.options.CleanupArchiveBatchDelay().Milliseconds() != 250 {
+		t.Fatalf("Expected CLEANUP_ARCHIVE_BATCH_DELAY_MILLISECONDS to be 250 by default")
+	}
+
+	if err := configParser.parseLines([]string{"CLEANUP_ARCHIVE_BATCH_DELAY_MILLISECONDS=1000"}); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if configParser.options.CleanupArchiveBatchDelay().Milliseconds() != 1000 {
+		t.Fatalf("Expected CLEANUP_ARCHIVE_BATCH_DELAY_MILLISECONDS to be 1000")
+	}
+
+	if err := configParser.parseLines([]string{"CLEANUP_ARCHIVE_BATCH_DELAY_MILLISECONDS=-1"}); err == nil {
+		t.Fatal("Expected an error for a negative batch delay")
+	}
+}
+
+func TestCleanupArchiveWindowOptionParsing(t *testing.T) {
+	configParser := NewConfigParser()
+
+	if _, _, ok := configParser.options.CleanupArchiveWindow(); ok {
+		t.Fatal("Expected no cleanup window by default")
+	}
+
+	if err := configParser.parseLines([]string{
+		"CLEANUP_ARCHIVE_WINDOW_START=02:00",
+		"CLEANUP_ARCHIVE_WINDOW_END=05:30",
+	}); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	start, end, ok := configParser.options.CleanupArchiveWindow()
+	if !ok {
+		t.Fatal("Expected a cleanup window to be configured")
+	}
+	if start != 2*60 || end != 5*60+30 {
+		t.Fatalf("Expected window 02:00-05:30 in minutes, got %d-%d", start, end)
+	}
+
+	if err := configParser.options.Validate(); err != nil {
+		t.Fatalf("Unexpected validation error: %v", err)
+	}
+
+	for _, invalidValue := range []string{"2:00", "24:00", "02:60", "02", "02:00:00", "ab:cd"} {
+		configParser := NewConfigParser()
+		if err := configParser.parseLines([]string{"CLEANUP_ARCHIVE_WINDOW_START=" + invalidValue}); err == nil {
+			t.Fatalf("Expected an error for invalid window start %q", invalidValue)
+		}
+	}
+}
+
+func TestCleanupArchiveWindowRequiresBothBoundaries(t *testing.T) {
+	for _, lines := range [][]string{
+		{"CLEANUP_ARCHIVE_WINDOW_START=02:00"},
+		{"CLEANUP_ARCHIVE_WINDOW_END=05:00"},
+	} {
+		configParser := NewConfigParser()
+		if err := configParser.parseLines(lines); err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if err := configParser.options.Validate(); err == nil {
+			t.Fatalf("Expected a validation error when only one window boundary is set: %v", lines)
+		}
+	}
+}
+
 func TestCleanupFrequencyOptionParsing(t *testing.T) {
 	configParser := NewConfigParser()
 

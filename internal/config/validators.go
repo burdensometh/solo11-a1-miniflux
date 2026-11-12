@@ -59,3 +59,34 @@ func validateRange(rawValue string, min, max int) error {
 	}
 	return nil
 }
+
+// validateTimeOfDay ensures the value is empty or a "HH:MM" time of day.
+func validateTimeOfDay(rawValue string) error {
+	if rawValue == "" {
+		return nil
+	}
+	if _, err := parseTimeOfDay(rawValue); err != nil {
+		return err
+	}
+	return nil
+}
+
+// parseTimeOfDay converts a "HH:MM" value into minutes since midnight.
+func parseTimeOfDay(rawValue string) (int, error) {
+	hour, minute, found := strings.Cut(rawValue, ":")
+	if !found || len(hour) != 2 || len(minute) != 2 {
+		return 0, fmt.Errorf("invalid time of day %q, expected HH:MM", rawValue)
+	}
+
+	h, err := strconv.Atoi(hour)
+	if err != nil || h < 0 || h > 23 {
+		return 0, fmt.Errorf("invalid time of day %q, hour must be between 00 and 23", rawValue)
+	}
+
+	m, err := strconv.Atoi(minute)
+	if err != nil || m < 0 || m > 59 {
+		return 0, fmt.Errorf("invalid time of day %q, minute must be between 00 and 59", rawValue)
+	}
+
+	return h*60 + m, nil
+}

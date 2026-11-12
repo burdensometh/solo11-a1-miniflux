@@ -182,12 +182,49 @@ Must be used with \fBKEY_FILE\fR.
 Default is empty.
 .TP
 .B CLEANUP_ARCHIVE_BATCH_SIZE
-Number of entries to archive for each job interval.
+Number of entries deleted in a single batch (one database transaction) by the
+cleanup job.
+.IP
+Archiving runs as a sequence of small batches so that a large cleanup does not
+lock the entries table or interfere with feed refreshes. Consecutive batches
+are separated by CLEANUP_ARCHIVE_BATCH_DELAY_MILLISECONDS.
 .IP
 Default is 10000 entries.
 .TP
+.B CLEANUP_ARCHIVE_BATCH_DELAY_MILLISECONDS
+Pause in milliseconds between two archive batches.
+.IP
+This throttles the cleanup job and leaves database capacity available for
+concurrent feed refreshes. Set to 0 to disable the pause.
+.IP
+Default is 250 milliseconds.
+.TP
+.B CLEANUP_ARCHIVE_WINDOW_START
+Start of the daily time window during which old entries are allowed to be
+archived, in HH:MM format (server local time).
+.IP
+Must be used together with CLEANUP_ARCHIVE_WINDOW_END. The window may wrap
+around midnight (for example 22:00-06:00). When no window is configured,
+archiving is allowed at any time.
+.IP
+When a window is configured, make sure CLEANUP_FREQUENCY_HOURS is small
+enough (for example 1 hour) for the cleanup job to run while the window is
+open. An archiving run stops at the end of the window and resumes during the
+next one.
+.IP
+Default is empty (no restriction).
+.TP
+.B CLEANUP_ARCHIVE_WINDOW_END
+End of the daily archiving time window, in HH:MM format (server local time).
+Must be used together with CLEANUP_ARCHIVE_WINDOW_START.
+.IP
+Default is empty (no restriction).
+.TP
 .B CLEANUP_ARCHIVE_READ_DAYS
 Number of days before the cleanup job archives read entries.
+.IP
+The age of an entry is measured from the last time it was touched (marked
+read/unread or starred), so recently read entries are never archived.
 .IP
 Archiving deletes non-bookmarked, non-shared read entries from the database
 and records a tombstone to prevent the same entry
@@ -200,6 +237,9 @@ Default is 60 days.
 .B CLEANUP_ARCHIVE_UNREAD_DAYS
 Number of days before the cleanup job archives unread entries.
 .IP
+The age of an entry is measured from the last time it was touched (marked
+read/unread or starred), so recently read entries are never archived.
+.IP
 Archiving deletes non-bookmarked, non-shared unread entries from the database
 and records a tombstone to prevent the same entry
 from being imported again during a later feed refresh.
@@ -211,6 +251,10 @@ Default is 180 days.
 .B CLEANUP_FREQUENCY_HOURS
 Interval in hours between cleanup jobs
 (remove old sessions and archive entries).
+.IP
+Entry archiving is executed in small batches and can be interrupted at any
+time (process shutdown, end of the configured time window); each batch is
+committed separately, so the next run resumes where the previous one stopped.
 .IP
 Default is 24 hours.
 .TP
